@@ -9,19 +9,22 @@ HEADERS_GHL = {
 
 
 def get_opportunities_by_user(ghl_user_id: str):
-    """Obtiene y formatea las oportunidades operativas activas para el Hunter (Opción 1 - Límite 100)."""
+    """Obtiene y formatea las oportunidades operativas activas para el Hunter (Opción 1 - Máximo 20 por API GHL)."""
     url = "https://services.leadconnectorhq.com/opportunities/search"
 
     params = {
         "location_id": config.LOCATION_ID,
         "pipeline_id": config.PIPELINE_ID,
         "assigned_to": ghl_user_id,
-        "limit": 100
+        "limit": 20  # Corregido: GHL v2 rechaza valores mayores a 20 en este endpoint
     }
 
     try:
         response = requests.get(url, headers=HEADERS_GHL, params=params)
+
+        print(f"📡 [DEBUG GHL Opción 1] Status: {response.status_code}")
         if response.status_code != 200:
+            print(f"📡 [DEBUG GHL Opción 1] Error Body: {response.text}")
             return []
 
         opps = response.json().get("opportunities", [])
@@ -33,7 +36,6 @@ def get_opportunities_by_user(ghl_user_id: str):
             inmobiliaria = "No especificada"
             foto_url = None
 
-            # Consolidamos todos los posibles campos personalizados del contacto y la oportunidad
             custom_fields = contact.get("customFields", []) + opp.get("customFields", [])
             for field in custom_fields:
                 f_id = str(field.get("id", "")).lower()
@@ -43,7 +45,6 @@ def get_opportunities_by_user(ghl_user_id: str):
                 if not f_value:
                     continue
 
-                # Validación robusta por texto clave en ID o KEY
                 if "inmobiliaria" in f_key or "constructora" in f_key or "inmobiliaria" in f_id:
                     inmobiliaria = str(f_value)
                 elif "foto" in f_key or "imagen" in f_key or "foto" in f_id:
@@ -84,6 +85,8 @@ def get_opportunities_advanced(ghl_user_id: str, search_query: str = None, stage
 
     try:
         response = requests.get(url, headers=HEADERS_GHL, params=params)
+
+        print(f"📡 [DEBUG GHL Opción 4] Status: {response.status_code}")
         if response.status_code != 200:
             return []
 
@@ -127,13 +130,13 @@ def get_opportunities_advanced(ghl_user_id: str, search_query: str = None, stage
 
 
 def get_pipeline_summary():
-    """Obtiene todas las oportunidades del pipeline para el reporte del CEO."""
+    """Obtiene todas las oportunidades del pipeline para el reporte del CEO (Limitado a 20 por página de consulta)."""
     url = "https://services.leadconnectorhq.com/opportunities/search"
 
     params = {
         "location_id": config.LOCATION_ID,
         "pipeline_id": config.PIPELINE_ID,
-        "limit": 100
+        "limit": 20
     }
 
     try:

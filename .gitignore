@@ -1,0 +1,44 @@
+# Entorno virtual de Python
+.venv/
+venv/
+env/
+
+# Archivos de caché de Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+
+# Base de datos SQLite
+*.db
+*.sqlite3
+
+# Variables de entorno
+.env
+.env.local
+
+# Archivos de configuración del IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Carpeta de pruebas/testeos
+TESTEOS/
+
+# Logs
+*.log
+
+# Distribución / packaging
+dist/
+build/
+*.egg-info/
+
+# Archivos del sistema operativo
+.DS_Store
+Thumbs.db
+
+# Docker (opcional, si no quieres versionar)
+# Dockerfile
+# .dockerignore
