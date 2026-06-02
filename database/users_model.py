@@ -49,7 +49,7 @@ def get_user_by_phone_only(phone: str):
     """Busca un usuario activo estrictamente por su número celular."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT name, ghl_id, role, status, wh atsapp_id FROM users WHERE phone = ? AND status = 'active'", (phone,))
+    cursor.execute("SELECT name, ghl_id, role, status, whatsapp_id FROM users WHERE phone = ? AND status = 'active'", (phone,))
     user = cursor.fetchone()
     conn.close()
     return dict(user) if user else None
