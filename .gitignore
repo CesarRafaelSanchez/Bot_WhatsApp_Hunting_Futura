@@ -1,3 +1,72 @@
+<<<<<<< HEAD
 config.py
 __pycache__/
 /venv/
+=======
+<<<<<<< HEAD
+# Entorno virtual de Python
+.venv/
+venv/
+env/
+=======
+# Variables de entorno
+.env
+.env.local
+config.py
+
+# Entorno virtual de Python
+.venv/
+venv/
+env/+
+>>>>>>> dev-mathias
+
+# Archivos de caché de Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+
+<<<<<<< HEAD
+# Base de datos SQLite
+*.db
+*.sqlite3
+
+# Variables de entorno
+.env
+.env.local
+
+=======
+>>>>>>> dev-mathias
+# Archivos de configuración del IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+<<<<<<< HEAD
+
+# Carpeta de pruebas/testeos
+TESTEOS/
+
+# Logs
+*.log
+
+# Distribución / packaging
+=======
+>>>>>>> dev-mathias
+dist/
+build/
+*.egg-info/
+
+# Archivos del sistema operativo
+.DS_Store
+<<<<<<< HEAD
+Thumbs.db
+
+# Docker (opcional, si no quieres versionar)
+# Dockerfile
+# .dockerignore
+=======
+Thumbs.db
+>>>>>>> dev-mathias
+>>>>>>> master

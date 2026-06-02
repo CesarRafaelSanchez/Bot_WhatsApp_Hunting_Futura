@@ -1,9 +1,12 @@
 from database import users_model, state_model
 from bot import menus
 from services import openwa_client
+import sys
 
 
 def procesar_flujo_bot(session_id: str, phone_clean: str, user_input: str, message_data: dict) -> str:
+    print(f"📞 [BOT] Recibió mensaje de {phone_clean}: {user_input}", flush=True)
+
     # 1. Buscar usuario en DB
     user = users_model.get_user_by_identifier(phone_clean)
 
@@ -25,17 +28,69 @@ def procesar_flujo_bot(session_id: str, phone_clean: str, user_input: str, messa
         return "⚠️ *Acceso Restringido:* Su número no está autorizado en la red de Hunting."
 
     role = user["role"].upper()
+
+    # =========================================================
+    # INTERCEPTOR GLOBAL DE SALUDOS (RESETEO DE ESTADO)
+    # =========================================================
+    if user_input.strip().lower() in ["hola", "menu", "menú", "inicio", "salir", "volver"]:
+        state_model.clear_user_state(phone_clean)
+        return menus.obtener_menu_principal(user["name"], role)
+
     state, state_data = state_model.get_user_state(phone_clean)
 
     # =========================================================
     # MOTOR DE ESTADOS INTERACTIVOS (INTERCEPTOR DE FORMULARIOS)
     # =========================================================
     if state:
-        if state == "HUNTER_BUSCAR_NOMBRE" and role in ["HUNTER", "TI"]:
+        if state == "HUNTER_VIEWING_OPPORTUNITIES" and role == "HUNTER":
+            from services import ghl_client
+            opportunities = ghl_client.get_opportunities_by_user(user["ghl_id"])
+
+            if user_input.strip() == "0":
+                state_model.clear_user_state(phone_clean)
+                return menus.obtener_menu_principal(user["name"], role)
+
+            if user_input.strip().isdigit():
+                opp_index = int(user_input.strip()) - 1
+                if 0 <= opp_index < len(opportunities):
+                    state_model.clear_user_state(phone_clean)
+                    selected_opp = opportunities[opp_index]
+                    # 🚀 ENRIQUECER SOLO LA OPORTUNIDAD SELECCIONADA
+                    print(f"➡️ [ROUTER] Usuario seleccionó oportunidad: {selected_opp.get('name')}", flush=True)
+                    enriched_opp = ghl_client.enrich_opportunity(selected_opp)
+
+                    print(f"➡️ [ROUTER] Foto lista para enviar: {enriched_opp.get('foto')}", flush=True)
+                    # 📸 DESCARGAR Y ENVIAR LA FOTO POR WHATSAPP SI EXISTE
+                    if enriched_opp.get("foto"):
+                        img_bytes = ghl_client.download_image_bytes(enriched_opp["foto"])
+                        if img_bytes:
+                            openwa_client.send_whatsapp_image(session_id, phone_clean, img_bytes, "📸 Foto del Proyecto")
+
+                    return menus.mostrar_detalles_oportunidad(enriched_opp)
+                return menus.mostrar_oportunidades_resumidas(opportunities) + "\n\n⚠️ Número inválido. Seleccione un número de la lista o *0* para volver."
+
+            if opportunities:
+                return menus.mostrar_oportunidades_resumidas(opportunities) + "\n\n⚠️ Por favor, seleccione un número de la lista o *0* para volver al Menú Principal."
+            state_model.clear_user_state(phone_clean)
+            return "📋 No se encontraron oportunidades asignadas.\n\n*0* Volver al Menú Principal"
+
+        elif state == "BUSCAR_PROYECTO" and role in ["HUNTER", "TI", "BACKOFFICE", "CEO"]:
             from services import ghl_client
             opps = ghl_client.get_opportunities_advanced(user["ghl_id"], search_query=user_input.strip())
             state_model.clear_user_state(phone_clean)
-            return menus.formatear_lista_historico(opps)
+            return menus.formatear_lista_historico(opps) + "\n\n*0* Volver al Menú Principal"
+
+        elif state == "PROJECTS_BY_STATE_SELECTION" and role in ["HUNTER", "TI", "BACKOFFICE", "CEO"]:
+            from services import ghl_client
+            if user_input.strip() == "1":
+                opps = ghl_client.get_opportunities_advanced(user["ghl_id"], stage_id="dc5a218f-50a8-4bb6-9351-82b2f10d9886")
+                state_model.clear_user_state(phone_clean)
+                return menus.formatear_lista_historico(opps) + "\n\n*0* Volver al Menú Principal"
+            if user_input.strip() == "2":
+                opps = ghl_client.get_opportunities_advanced(user["ghl_id"], stage_id="b9549f80-9858-4e84-8afc-aacdcd4db23f")
+                state_model.clear_user_state(phone_clean)
+                return menus.formatear_lista_historico(opps) + "\n\n*0* Volver al Menú Principal"
+            return menus.obtener_menu_estado()
 
         elif role == "TI":
             if state == "TI_ALTA_TELEFONO":
@@ -89,8 +144,28 @@ def procesar_flujo_bot(session_id: str, phone_clean: str, user_input: str, messa
     # =========================================================
     # ENRUTAMIENTO DE ENTRADAS ESTÁNDAR (MENÚS RESIDENCIALES)
     # =========================================================
-    if user_input == "1" and role in ["HUNTER", "TI"]:
-        return menus.procesar_opcion_hunter(user["ghl_id"])
+    if user_input == "1" and role == "HUNTER":
+        from services import ghl_client
+        opps = ghl_client.get_opportunities_by_user(user["ghl_id"])
+        state_model.set_user_state(phone_clean, "HUNTER_VIEWING_OPPORTUNITIES", {})
+        return menus.mostrar_oportunidades_resumidas(opps)
+
+    elif user_input == "1" and role == "TI":
+        return menus.procesar_opcion_asignadas(user["ghl_id"])
+
+    elif user_input == "1" and role == "BACKOFFICE":
+        return menus.procesar_opcion_asignadas(user["ghl_id"])
+
+    elif user_input == "1" and role == "CEO":
+        return menus.procesar_opcion_asignadas(user["ghl_id"])
+
+    elif user_input == "2" and role == "HUNTER":
+        state_model.set_user_state(phone_clean, "BUSCAR_PROYECTO", {})
+        return "🔍 *Buscador de Proyectos:*\n\nPor favor, escriba el nombre del edificio o proyecto que desea buscar:"
+
+    elif user_input == "3" and role == "HUNTER":
+        state_model.set_user_state(phone_clean, "PROJECTS_BY_STATE_SELECTION", {})
+        return menus.obtener_menu_estado()
 
     elif user_input == "2" and role in ["CEO", "BACKOFFICE", "TI"]:
         return menus.procesar_opcion_ceo()

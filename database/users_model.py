@@ -1,3 +1,4 @@
+import sqlite3
 from database.connection import get_db_connection
 from datetime import datetime
 
@@ -7,7 +8,7 @@ def get_user_by_identifier(identifier: str):
     cursor = conn.cursor()
     cursor.execute(
         """
-        SELECT name, ghl_id, role, status FROM users 
+        SELECT phone, name, ghl_id, role, status FROM users 
         WHERE (phone = ? OR whatsapp_id = ?) AND status = 'active'
         """,
         (identifier, identifier)

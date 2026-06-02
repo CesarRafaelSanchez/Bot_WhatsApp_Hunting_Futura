@@ -1,0 +1,8 @@
+flask
+requests
+<<<<<<< HEAD
+gunicorn
+=======
+gunicorn
+sqlite3
+>>>>>>> dev-mathias
