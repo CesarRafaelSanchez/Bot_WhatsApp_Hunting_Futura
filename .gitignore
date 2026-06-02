@@ -1,4 +1,29 @@
+# Variables de entorno
+.env
+.env.local
 config.py
-.venv/
-__pycache__/
 
+# Entorno virtual de Python
+.venv/
+venv/
+env/+
+
+# Archivos de caché de Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+
+# Archivos de configuración del IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+dist/
+build/
+*.egg-info/
+
+# Archivos del sistema operativo
+.DS_Store
+Thumbs.db
