@@ -17,12 +17,14 @@ def obtener_menu_principal(nombre: str, role: str) -> str:
             f"Bienvenido al Panel operativo de Hunters.\n\n"
             f"Por favor, seleccione una opción:\n\n"
             f"*[ 1 ]* Ver mis oportunidades asignadas en GHL\n"
-            f"*[ 4 ]* Histórico de Proyectos ⏳"
+            f"*[ 2 ]* Buscar proyecto por nombre\n"
+            f"*[ 3 ]* Filtrar oportunidades por estado"
         )
     elif role_upper == "BACKOFFICE":
         return (
             f"Hola *{nombre}* 👋 ({role})\n"
             f"Bienvenido al panel de control global.\n\n"
+            f"Por favor, seleccione una opción:\n\n"
             f"*[ 1 ]* Ver mis oportunidades asignadas\n"
             f"*[ 2 ]* Ver resumen estratégico del Pipeline"
         )
@@ -78,23 +80,85 @@ def formatear_lista_historico(opportunities) -> str:
         return "📋 *Estatus de Oportunidades:*\n\nNo se encontraron registros que coincidan con los criterios."
 
     reply = f"📋 *Registros Encontrados ({len(opportunities)})*\n"
-    reply += "Alineado con el pipeline real de Hunting.\n"
     reply += "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n\n"
 
     for idx, opp in enumerate(opportunities, 1):
         reply += f"*{idx}. {opp['name']}*\n"
         reply += f"🏢 *Inmobiliaria:* {opp['inmobiliaria']}\n"
         reply += f"📍 *Dirección:* {opp['direccion']}\n"
-        if opp['foto']:
-            reply += f"📸 *Foto del Edificio:* {opp['foto']}\n"
+        reply += f"📌 *Coordenadas:* {opp.get('coordenadas', 'No especificada')}\n"
+        if opp.get('foto'):
+            reply += f"📸 *Foto del Edificio:* Adjunta en el chat.\n"
+        else:
+            reply += f"📸 Aún no se llena la ficha de datos\n"
         reply += "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n"
     return reply
 
 
+def mostrar_oportunidades_resumidas(opportunities) -> str:
+    if not opportunities:
+        return "📋 *Oportunidades Asignadas:*\n\nNo se encontraron registros asignados a su usuario.\n\n*0* Volver al Menú Principal"
+
+    reply = f"📋 *Oportunidades Asignadas ({len(opportunities)})*\n"
+    reply += "Seleccione el número de la oportunidad:\n"
+    reply += "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n\n"
+
+    for idx, opp in enumerate(opportunities, 1):
+        reply += f"*{idx}. {opp['name']}*\n"
+    reply += "\n*0* Volver al Menú Principal"
+    return reply
+
+
+def mostrar_oportunidades_asignadas(opportunities) -> str:
+    if not opportunities:
+        return "📋 *Oportunidades Asignadas:*\n\nNo se encontraron registros asignados a su usuario.\n\n*0* Volver al Menú Principal"
+
+    reply = f"📋 *Oportunidades Asignadas ({len(opportunities)})*\n"
+    reply += "Estas son todas las oportunidades asignadas a su usuario.\n"
+    reply += "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n\n"
+
+    for idx, opp in enumerate(opportunities, 1):
+        reply += f"*{idx}. {opp['name']}*\n"
+    reply += "\n*0* Volver al Menú Principal"
+    return reply
+
+
+def mostrar_detalles_oportunidad(opp: dict) -> str:
+    """Muestra los detalles completos de una oportunidad seleccionada."""
+    reply = f"📌 *{opp['name']}*\n\n"
+    reply += f"🏢 *Inmobiliaria:* {opp['inmobiliaria']}\n"
+    reply += f"📍 *Dirección:* {opp['direccion']}\n"
+    reply += f"📌 *Coordenadas:* {opp.get('coordenadas', 'No especificada')}\n"
+    
+    if opp.get('foto'):
+        reply += f"📸 *Foto del Edificio:* Adjunta arriba ☝️\n"
+    else:
+        reply += f"📸 Aún no se llena la ficha de datos\n"
+    
+    reply += "\n*0* Volver al Menú Principal"
+    return reply
+
+
+def obtener_menu_estado() -> str:
+    return (
+        "🎭 *Filtrar Proyectos por Estado*\n\n"
+        "Seleccione una opción:\n"
+        "*[ 1 ]* Ganados\n"
+        "*[ 2 ]* Perdidos\n"
+        "*[ 0 ]* Volver al Menú Principal"
+    )
+
+
 def procesar_opcion_hunter(ghl_id: str) -> str:
-    """Mapea directamente a la lista unificada con formato completo (Opción 1)."""
+    """Mapea directamente a la lista resumida de oportunidades asignadas para Hunters (Opción 1)."""
     opportunities = ghl_client.get_opportunities_by_user(ghl_id)
-    return formatear_lista_historico(opportunities)
+    return mostrar_oportunidades_resumidas(opportunities)
+
+
+def procesar_opcion_asignadas(ghl_id: str) -> str:
+    """Muestra oportunidades asignadas sin los controles específicos de Hunter."""
+    opportunities = ghl_client.get_opportunities_by_user(ghl_id)
+    return mostrar_oportunidades_asignadas(opportunities)
 
 
 def procesar_opcion_ceo() -> str:

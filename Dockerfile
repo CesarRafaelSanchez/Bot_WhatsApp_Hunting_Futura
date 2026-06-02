@@ -10,7 +10,11 @@ COPY requirements.txt .
 # Instalar dependencias
 RUN pip install --no-cache-dir -r requirements.txt
 
+<<<<<<< HEAD
 # Copiar todo el código del proyecto
+=======
+# Copiar_todo el código del proyecto
+>>>>>>> dev-mathias
 COPY . .
 
 # Exponer el puerto
