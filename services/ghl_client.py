@@ -3,6 +3,7 @@ import config
 import json
 import io
 import re
+
 try:
     from PIL import Image as PILImage
 except ImportError:
@@ -26,27 +27,10 @@ FIELD_ID_MAP = {
 }
 
 
-<<<<<<< HEAD
-def get_opportunities_by_user(ghl_user_id: str):
-    """Obtiene y formatea las oportunidades operativas activas para el Hunter (Opción 1 - Máximo 20 por API GHL)."""
-    url = "https://services.leadconnectorhq.com/opportunities/search"
-
-    params = {
-        "location_id": config.LOCATION_ID,
-        "pipeline_id": config.PIPELINE_ID,
-        "assigned_to": ghl_user_id,
-        "limit": 20  # Corregido: GHL v2 rechaza valores mayores a 20 en este endpoint
-    }
-
-    try:
-        response = requests.get(url, headers=HEADERS_GHL, params=params)
-
-        print(f"📡 [DEBUG GHL Opción 1] Status: {response.status_code}")
-=======
 def _get_url_from_value(val) -> str:
     if not val:
         return ""
-        
+
     # 🛠️ GHL a veces manda la lista camuflada como string '["hash"]'
     if isinstance(val, str):
         val_str = val.strip()
@@ -60,7 +44,7 @@ def _get_url_from_value(val) -> str:
 
     if isinstance(val, list) and len(val) > 0:
         val = val[0]
-        
+
     if isinstance(val, dict):
         val = val.get("url") or val.get("value") or val.get("fieldValue") or val.get("downloadUrl") or ""
 
@@ -70,7 +54,7 @@ def _get_url_from_value(val) -> str:
     match = re.search(r'(https?://[^\s\]"\'}]+)', val_str)
     if match:
         return match.group(1)
-        
+
     # 🚀 EXTRACTOR 2: Si GHL mandó solo el ID del documento (como el código largo que encontraste)
     clean_val = re.sub(r'[^a-zA-Z0-9_-]', '', val_str)
     if len(clean_val) > 20:
@@ -104,11 +88,11 @@ def _extract_project_fields(contact: dict) -> dict:
 
     for field in contact.get("customFields", []) or []:
         value = field.get("value")
-        
+
         # 🛠️ CORRECCIÓN CRÍTICA: GHL v2 usa 'fieldValue' en las Oportunidades en lugar de 'value'
         if value is None:
             value = field.get("fieldValue")
-            
+
         if value is None or value == "" or value == []:
             continue
 
@@ -155,9 +139,10 @@ def _extract_project_fields(contact: dict) -> dict:
             # 🛡️ BLOQUEO: Ignorar "montantes" explícitamente porque solo queremos el edificio
             if "montante" in field_key or "montante" in field_name:
                 continue
-                
+
             val_url = _get_url_from_value(value)
-            print(f"🕵️‍♂️ [EXTRACT] Evaluando campo '{field_name}' / '{field_key}' -> URL extraída: '{val_url}'", flush=True)
+            print(f"🕵️‍♂️ [EXTRACT] Evaluando campo '{field_name}' / '{field_key}' -> URL extraída: '{val_url}'",
+                  flush=True)
             if val_url and val_url.startswith("http") and not foto_edificio:
                 foto_edificio = val_url
 
@@ -227,49 +212,11 @@ def _build_opportunity_summary(opp: dict, fetch_details: bool = False) -> dict:
 def _search_opportunities(params: dict, fetch_details: bool = False) -> list:
     try:
         response = requests.get(f"{BASE_URL}/opportunities/search", headers=HEADERS_GHL, params=params)
->>>>>>> dev-mathias
         if response.status_code != 200:
-            print(f"📡 [DEBUG GHL Opción 1] Error Body: {response.text}")
             return []
 
         opps = response.json().get("opportunities", [])
-<<<<<<< HEAD
-        formatted_list = []
-
-        for opp in opps:
-            contact = opp.get("contact", {})
-            direccion = contact.get("address", "No especificada") or "No especificada"
-            inmobiliaria = "No especificada"
-            foto_url = None
-
-            custom_fields = contact.get("customFields", []) + opp.get("customFields", [])
-            for field in custom_fields:
-                f_id = str(field.get("id", "")).lower()
-                f_key = str(field.get("key", "")).lower()
-                f_value = field.get("value", "")
-
-                if not f_value:
-                    continue
-
-                if "inmobiliaria" in f_key or "constructora" in f_key or "inmobiliaria" in f_id:
-                    inmobiliaria = str(f_value)
-                elif "foto" in f_key or "imagen" in f_key or "foto" in f_id:
-                    foto_url = str(f_value)
-                elif "direccion" in f_key or "dirección" in f_key or "direccion" in f_id:
-                    direccion = str(f_value)
-
-            formatted_list.append({
-                "name": opp.get("name", "Sin Nombre").upper(),
-                "direccion": direccion,
-                "inmobiliaria": inmobiliaria,
-                "foto": foto_url,
-                "stage": opp.get("pipelineStageId", "En proceso")
-            })
-
-        return formatted_list
-=======
         return [_build_opportunity_summary(opp, fetch_details) for opp in opps]
->>>>>>> dev-mathias
     except Exception as e:
         print(f"⚠️ Error GHL Search: {e}")
         return []
@@ -302,17 +249,8 @@ def get_opportunities_advanced(ghl_user_id: str, search_query: str = None, stage
     if stage_id:
         params["pipeline_stage_id"] = stage_id
 
-<<<<<<< HEAD
-    try:
-        response = requests.get(url, headers=HEADERS_GHL, params=params)
-
-        print(f"📡 [DEBUG GHL Opción 4] Status: {response.status_code}")
-        if response.status_code != 200:
-            return []
-=======
     # ⏳ SLOW FETCH: Trae todos los detalles porque se muestran directamente
     return _search_opportunities(params, fetch_details=True)
->>>>>>> dev-mathias
 
 
 def enrich_opportunity(opp_summary: dict) -> dict:
@@ -334,13 +272,13 @@ def enrich_opportunity(opp_summary: dict) -> dict:
         try:
             # 🛠️ EXIGIMOS A GHL QUE INCLUYA LOS CUSTOM FIELDS
             params_opp = {"location_id": config.LOCATION_ID, "include": "customFields,formFields"}
-            
+
             resp = requests.get(f"{BASE_URL}/opportunities/{opp_id}", headers=HEADERS_GHL, params=params_opp)
-            
+
             print(f"🚀 [ENRICH] Respuesta de GHL (Status): {resp.status_code}", flush=True)
             if resp.status_code == 200:
                 opp_data = resp.json().get("opportunity") or resp.json()
-                
+
                 print("🧪 [DEBUG OPP] Keys oportunidad:", list(opp_data.keys()), flush=True)
                 print("🧪 [DEBUG OPP] Custom Fields:", flush=True)
                 for cf in opp_data.get("customFields", []) or []:
@@ -361,17 +299,17 @@ def enrich_opportunity(opp_summary: dict) -> dict:
                         "value": ff.get("value"),
                         "fieldValue": ff.get("fieldValue"),
                     }, flush=True)
-                
+
                 cf_opp = opp_data.get("customFields", []) or []
                 ff_opp = opp_data.get("formFields", []) or []
-                
+
                 # 🛠️ FALLBACK: Si GHL aplana los campos directamente en el objeto
                 for k, v in opp_data.items():
                     k_lower = k.lower()
                     if k in FIELD_ID_MAP or "foto" in k_lower or "archivo" in k_lower:
                         if not any(cf.get("id") == k for cf in cf_opp):
                             cf_opp.append({"id": k, "name": k, "fieldValue": v})
-                            
+
             else:
                 print(f"⚠️ [ENRICH] Falló la petición a GHL: {resp.text}", flush=True)
         except Exception as e:
@@ -388,16 +326,18 @@ def enrich_opportunity(opp_summary: dict) -> dict:
         }, flush=True)
 
     # 🛠️ SUMAMOS TODO AL ESCÁNER: Custom Fields (Contact + Opp) + Form Fields (Contact + Opp)
-    contact["customFields"] = (contact.get("customFields", []) or []) + cf_opp + ff_opp + (contact.get("formFields", []) or [])
+    contact["customFields"] = (contact.get("customFields", []) or []) + cf_opp + ff_opp + (
+                contact.get("formFields", []) or [])
 
     fields = _extract_project_fields(contact)
     print(f"🚀 [ENRICH] Foto final encontrada: {fields.get('foto_edificio')}", flush=True)
-    direccion_parts = [p for p in [fields["tipo_via"], fields["nombre_via"], fields["numeracion_via"], fields["distrito"]] if p]
-    
+    direccion_parts = [p for p in
+                       [fields["tipo_via"], fields["nombre_via"], fields["numeracion_via"], fields["distrito"]] if p]
+
     opp_summary["direccion"] = " ".join(direccion_parts) if direccion_parts else "No especificada"
     opp_summary["inmobiliaria"] = fields["inmobiliaria"]
     opp_summary["coordenadas"] = fields["coordenadas"]
-    
+
     if fields["foto_edificio"]:
         opp_summary["foto"] = fields["foto_edificio"]
 
@@ -405,13 +345,13 @@ def enrich_opportunity(opp_summary: dict) -> dict:
 
 
 def get_pipeline_summary():
-    """Obtiene todas las oportunidades del pipeline para el reporte del CEO (Limitado a 20 por página de consulta)."""
+    """Obtiene todas las oportunidades del pipeline para el reporte del CEO."""
     url = "https://services.leadconnectorhq.com/opportunities/search"
 
     params = {
         "location_id": config.LOCATION_ID,
         "pipeline_id": config.PIPELINE_ID,
-        "limit": 20
+        "limit": 100
     }
 
     try:
@@ -439,10 +379,10 @@ def download_image_bytes(url: str) -> bytes:
         resp = requests.get(url, headers=headers, timeout=30, allow_redirects=True)
         print(f"📸 [GHL Client] URL: {url}")
         print(f"📸 [GHL Client] Status: {resp.status_code}")
-        
+
         if resp.status_code == 200:
             raw_bytes = resp.content
-            
+
             # 🛠️ CONVERTIR IMAGEN A JPEG (Evita que WhatsApp la rechace)
             if PILImage:
                 try:
@@ -453,7 +393,7 @@ def download_image_bytes(url: str) -> bytes:
                     return out_bytes.getvalue()
                 except Exception as e:
                     print(f"⚠️ Error convirtiendo imagen: {e}")
-                    
+
             return raw_bytes
     except Exception as e:
         print(f"⚠️ Excepción descargando imagen: {e}")
