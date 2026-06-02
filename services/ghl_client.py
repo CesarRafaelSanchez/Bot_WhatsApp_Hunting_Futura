@@ -1,79 +1,244 @@
 import requests
 import config
+import json
+import io
+import re
+try:
+    from PIL import Image as PILImage
+except ImportError:
+    PILImage = None
 
 HEADERS_GHL = {
     "Authorization": f"Bearer {config.GHL_TOKEN}",
     "Version": "2021-04-15",
     "Content-Type": "application/json"
 }
+BASE_URL = "https://services.leadconnectorhq.com"
+
+FIELD_ID_MAP = {
+    "z3oowb5sA1BCEUW1clPn": "tipo_via",
+    "5Qj8ala9IQ2nZeUpyLWB": "inmobiliaria",
+    "g0iB6S9D8nJukEjqvjkJ": "numeracion_via",
+    "H9m1fipzTYGn6xB4ocxZ": "distrito",
+    "G5tzckiDp4NSVjA4ZYxA": "coordenadas",
+    "EESQxx49zXBuxyBb1KVk": "nombre_via",
+    "qxHUg4a4BI5Wy8bY2inP": "foto_edificio",
+}
 
 
-def get_opportunities_by_user(ghl_user_id: str):
-    """Obtiene y formatea las oportunidades operativas activas para el Hunter (Opción 1 - Límite 100)."""
-    url = "https://services.leadconnectorhq.com/opportunities/search"
+def _get_url_from_value(val) -> str:
+    if not val:
+        return ""
+        
+    # 🛠️ GHL a veces manda la lista camuflada como string '["hash"]'
+    if isinstance(val, str):
+        val_str = val.strip()
+        if val_str.startswith("[") and val_str.endswith("]"):
+            try:
+                parsed = json.loads(val_str)
+                if isinstance(parsed, list) and len(parsed) > 0:
+                    val = parsed[0]
+            except Exception:
+                pass
 
-    params = {
-        "location_id": config.LOCATION_ID,
-        "pipeline_id": config.PIPELINE_ID,
-        "assigned_to": ghl_user_id,
-        "limit": 100
-    }
+    if isinstance(val, list) and len(val) > 0:
+        val = val[0]
+        
+    if isinstance(val, dict):
+        val = val.get("url") or val.get("value") or val.get("fieldValue") or val.get("downloadUrl") or ""
+
+    val_str = str(val).strip()
+
+    # 🚀 EXTRACTOR 1: Busca un link directo http/https
+    match = re.search(r'(https?://[^\s\]"\'}]+)', val_str)
+    if match:
+        return match.group(1)
+        
+    # 🚀 EXTRACTOR 2: Si GHL mandó solo el ID del documento (como el código largo que encontraste)
+    clean_val = re.sub(r'[^a-zA-Z0-9_-]', '', val_str)
+    if len(clean_val) > 20:
+        return f"https://services.leadconnectorhq.com/documents/download/{clean_val}"
+
+    return ""
+
+
+def _get_contact_details(contact_id: str):
+    if not contact_id:
+        return {}
 
     try:
-        response = requests.get(url, headers=HEADERS_GHL, params=params)
+        response = requests.get(f"{BASE_URL}/contacts/{contact_id}", headers=HEADERS_GHL)
+        if response.status_code != 200:
+            return {}
+        return response.json().get("contact", {}) or {}
+    except Exception as e:
+        print(f"⚠️ Error cargando contacto {contact_id}: {e}")
+        return {}
+
+
+def _extract_project_fields(contact: dict) -> dict:
+    tipo_via = ""
+    nombre_via = ""
+    numeracion_via = ""
+    distrito = ""
+    coordenadas = "No especificada"
+    inmobiliaria = "No especificada"
+    foto_edificio = None
+
+    for field in contact.get("customFields", []) or []:
+        value = field.get("value")
+        
+        # 🛠️ CORRECCIÓN CRÍTICA: GHL v2 usa 'fieldValue' en las Oportunidades en lugar de 'value'
+        if value is None:
+            value = field.get("fieldValue")
+            
+        if value is None or value == "" or value == []:
+            continue
+
+        field_id = field.get("id")
+        field_key = str(field.get("key", "")).lower()
+        field_name = str(field.get("name", "")).lower()
+        normalized_value = str(value)
+
+        if field_id in FIELD_ID_MAP:
+            mapped = FIELD_ID_MAP[field_id]
+            if mapped == "inmobiliaria":
+                inmobiliaria = normalized_value
+            elif mapped == "tipo_via":
+                tipo_via = normalized_value
+            elif mapped == "nombre_via":
+                nombre_via = normalized_value
+            elif mapped == "numeracion_via":
+                numeracion_via = normalized_value
+            elif mapped == "numeracion_via_alt" and not numeracion_via:
+                numeracion_via = normalized_value
+            elif mapped == "distrito":
+                distrito = normalized_value
+            elif mapped == "coordenadas":
+                coordenadas = normalized_value
+            elif mapped == "foto_edificio":
+                val_url = _get_url_from_value(value)
+                if val_url and val_url.startswith("http") and not foto_edificio:
+                    foto_edificio = val_url
+            continue
+
+        if field_key == "cf_inmobiliaria":
+            inmobiliaria = normalized_value
+        elif field_key == "cf_tipo_via":
+            tipo_via = normalized_value
+        elif field_key == "cf_nombre_via":
+            nombre_via = normalized_value
+        elif field_key == "cf_numeracion_via":
+            numeracion_via = normalized_value
+        elif field_key == "cf_distrito":
+            distrito = normalized_value
+        elif field_key == "cf_coordenadas":
+            coordenadas = normalized_value
+        elif "foto" in field_key or "foto" in field_name:
+            # 🛡️ BLOQUEO: Ignorar "montantes" explícitamente porque solo queremos el edificio
+            if "montante" in field_key or "montante" in field_name:
+                continue
+                
+            val_url = _get_url_from_value(value)
+            print(f"🕵️‍♂️ [EXTRACT] Evaluando campo '{field_name}' / '{field_key}' -> URL extraída: '{val_url}'", flush=True)
+            if val_url and val_url.startswith("http") and not foto_edificio:
+                foto_edificio = val_url
+
+    if not distrito:
+        for tag in contact.get("tags", []) or []:
+            if isinstance(tag, str) and tag.lower().startswith("distrito:"):
+                distrito = tag.split(":", 1)[1].strip()
+                break
+
+    return {
+        "inmobiliaria": inmobiliaria,
+        "tipo_via": tipo_via,
+        "nombre_via": nombre_via,
+        "numeracion_via": numeracion_via,
+        "distrito": distrito,
+        "coordenadas": coordenadas,
+        "foto_edificio": foto_edificio,
+    }
+
+
+def _build_opportunity_summary(opp: dict, fetch_details: bool = False) -> dict:
+    stage_id = opp.get("pipelineStageId", "")
+    contact = opp.get("contact", {}) or {}
+    contact_id = opp.get("contactId") or contact.get("id")
+
+    cf_contact = contact.get("customFields", []) or []
+    cf_opp = opp.get("customFields", []) or []
+
+    # 🛠️ OPTIMIZACIÓN CRÍTICA: Solo hacemos la llamada si fetch_details=True
+    if fetch_details and contact_id and not cf_contact and not cf_opp:
+        fetched_contact = _get_contact_details(contact_id)
+        if fetched_contact:
+            contact = fetched_contact
+
+    # Consolidar todos los custom fields
+    contact["customFields"] = (contact.get("customFields", []) or []) + cf_opp
+
+    fields = _extract_project_fields(contact)
+    direccion_parts = []
+    if fields["tipo_via"]:
+        direccion_parts.append(fields["tipo_via"])
+    if fields["nombre_via"]:
+        direccion_parts.append(fields["nombre_via"])
+    if fields["numeracion_via"]:
+        direccion_parts.append(fields["numeracion_via"])
+    if fields["distrito"]:
+        direccion_parts.append(fields["distrito"])
+
+    direccion = " ".join(direccion_parts) if direccion_parts else "No especificada"
+
+    foto_url = None
+    if fields["foto_edificio"]:
+        foto_url = fields["foto_edificio"]
+
+    return {
+        "id": opp.get("id"),
+        "name": opp.get("name", "Sin Nombre").upper(),
+        "direccion": direccion,
+        "inmobiliaria": fields["inmobiliaria"],
+        "foto": foto_url,
+        "coordenadas": fields["coordenadas"],
+        "stage": stage_id,
+        "contact_id": contact_id,
+    }
+
+
+def _search_opportunities(params: dict, fetch_details: bool = False) -> list:
+    try:
+        response = requests.get(f"{BASE_URL}/opportunities/search", headers=HEADERS_GHL, params=params)
         if response.status_code != 200:
             return []
 
         opps = response.json().get("opportunities", [])
-        formatted_list = []
-
-        for opp in opps:
-            contact = opp.get("contact", {})
-            direccion = contact.get("address", "No especificada") or "No especificada"
-            inmobiliaria = "No especificada"
-            foto_url = None
-
-            # Consolidamos todos los posibles campos personalizados del contacto y la oportunidad
-            custom_fields = contact.get("customFields", []) + opp.get("customFields", [])
-            for field in custom_fields:
-                f_id = str(field.get("id", "")).lower()
-                f_key = str(field.get("key", "")).lower()
-                f_value = field.get("value", "")
-
-                if not f_value:
-                    continue
-
-                # Validación robusta por texto clave en ID o KEY
-                if "inmobiliaria" in f_key or "constructora" in f_key or "inmobiliaria" in f_id:
-                    inmobiliaria = str(f_value)
-                elif "foto" in f_key or "imagen" in f_key or "foto" in f_id:
-                    foto_url = str(f_value)
-                elif "direccion" in f_key or "dirección" in f_key or "direccion" in f_id:
-                    direccion = str(f_value)
-
-            formatted_list.append({
-                "name": opp.get("name", "Sin Nombre").upper(),
-                "direccion": direccion,
-                "inmobiliaria": inmobiliaria,
-                "foto": foto_url,
-                "stage": opp.get("pipelineStageId", "En proceso")
-            })
-
-        return formatted_list
+        return [_build_opportunity_summary(opp, fetch_details) for opp in opps]
     except Exception as e:
-        print(f"⚠️ Error GHL Hunter Extractor: {e}")
+        print(f"⚠️ Error GHL Search: {e}")
         return []
 
 
-def get_opportunities_advanced(ghl_user_id: str, search_query: str = None, stage_id: str = None):
-    """Consulta avanzada en GHL v2 filtrando por query o etapa específica (Opción 4 - Límite 20)."""
-    url = "https://services.leadconnectorhq.com/opportunities/search"
-
+def get_opportunities_by_user(ghl_user_id: str):
+    """Obtiene y formatea las oportunidades operativas activas para el Hunter (Opción 1 - Límite 100)."""
     params = {
         "location_id": config.LOCATION_ID,
         "pipeline_id": config.PIPELINE_ID,
         "assigned_to": ghl_user_id,
-        "limit": 20
+        "limit": 100,
+    }
+    # 🚀 FAST FETCH: Listados sin detalles pesados para evitar timeout
+    return _search_opportunities(params, fetch_details=False)
+
+
+def get_opportunities_advanced(ghl_user_id: str, search_query: str = None, stage_id: str = None):
+    """Consulta avanzada en GHL v2 filtrando por query o etapa específica (Opción 4 - Límite 20)."""
+    params = {
+        "location_id": config.LOCATION_ID,
+        "pipeline_id": config.PIPELINE_ID,
+        "assigned_to": ghl_user_id,
+        "limit": 20,
     }
 
     if search_query:
@@ -82,48 +247,97 @@ def get_opportunities_advanced(ghl_user_id: str, search_query: str = None, stage
     if stage_id:
         params["pipeline_stage_id"] = stage_id
 
-    try:
-        response = requests.get(url, headers=HEADERS_GHL, params=params)
-        if response.status_code != 200:
-            return []
+    # ⏳ SLOW FETCH: Trae todos los detalles porque se muestran directamente
+    return _search_opportunities(params, fetch_details=True)
 
-        opps = response.json().get("opportunities", [])
-        formatted_list = []
 
-        for opp in opps:
-            contact = opp.get("contact", {})
-            direccion = contact.get("address", "No especificada") or "No especificada"
-            inmobiliaria = "No especificada"
-            foto_url = None
+def enrich_opportunity(opp_summary: dict) -> dict:
+    """Carga los detalles faltantes (custom fields) bajo demanda para una sola oportunidad."""
+    contact_id = opp_summary.get("contact_id")
+    opp_id = opp_summary.get("id")
 
-            custom_fields = contact.get("customFields", []) + opp.get("customFields", [])
-            for field in custom_fields:
-                f_id = str(field.get("id", "")).lower()
-                f_key = str(field.get("key", "")).lower()
-                f_value = field.get("value", "")
+    print(f"🚀 [ENRICH] Iniciando búsqueda de fotos para Opp ID: {opp_id}", flush=True)
+    if not contact_id and not opp_id:
+        return opp_summary
 
-                if not f_value:
-                    continue
+    contact = _get_contact_details(contact_id) if contact_id else {}
 
-                if "inmobiliaria" in f_key or "constructora" in f_key or "inmobiliaria" in f_id:
-                    inmobiliaria = str(f_value)
-                elif "foto" in f_key or "imagen" in f_key or "foto" in f_id:
-                    foto_url = str(f_value)
-                elif "direccion" in f_key or "dirección" in f_key or "direccion" in f_id:
-                    direccion = str(f_value)
+    # 🛠️ RECUPERAR CAMPOS DE LA OPORTUNIDAD: Aquí está guardada la foto,
+    # y no venía en la carga rápida (Lazy Load) por defecto.
+    cf_opp = []
+    ff_opp = []
+    if opp_id:
+        try:
+            # 🛠️ EXIGIMOS A GHL QUE INCLUYA LOS CUSTOM FIELDS
+            params_opp = {"location_id": config.LOCATION_ID, "include": "customFields,formFields"}
+            
+            resp = requests.get(f"{BASE_URL}/opportunities/{opp_id}", headers=HEADERS_GHL, params=params_opp)
+            
+            print(f"🚀 [ENRICH] Respuesta de GHL (Status): {resp.status_code}", flush=True)
+            if resp.status_code == 200:
+                opp_data = resp.json().get("opportunity") or resp.json()
+                
+                print("🧪 [DEBUG OPP] Keys oportunidad:", list(opp_data.keys()), flush=True)
+                print("🧪 [DEBUG OPP] Custom Fields:", flush=True)
+                for cf in opp_data.get("customFields", []) or []:
+                    print({
+                        "id": cf.get("id"),
+                        "key": cf.get("key"),
+                        "name": cf.get("name"),
+                        "value": cf.get("value"),
+                        "fieldValue": cf.get("fieldValue"),
+                    }, flush=True)
 
-            formatted_list.append({
-                "name": opp.get("name", "Sin Nombre").upper(),
-                "direccion": direccion,
-                "inmobiliaria": inmobiliaria,
-                "foto": foto_url,
-                "stage": opp.get("pipelineStageId", "En proceso")
-            })
+                print("🧪 [DEBUG OPP] Form Fields:", flush=True)
+                for ff in opp_data.get("formFields", []) or []:
+                    print({
+                        "id": ff.get("id"),
+                        "key": ff.get("key"),
+                        "name": ff.get("name"),
+                        "value": ff.get("value"),
+                        "fieldValue": ff.get("fieldValue"),
+                    }, flush=True)
+                
+                cf_opp = opp_data.get("customFields", []) or []
+                ff_opp = opp_data.get("formFields", []) or []
+                
+                # 🛠️ FALLBACK: Si GHL aplana los campos directamente en el objeto
+                for k, v in opp_data.items():
+                    k_lower = k.lower()
+                    if k in FIELD_ID_MAP or "foto" in k_lower or "archivo" in k_lower:
+                        if not any(cf.get("id") == k for cf in cf_opp):
+                            cf_opp.append({"id": k, "name": k, "fieldValue": v})
+                            
+            else:
+                print(f"⚠️ [ENRICH] Falló la petición a GHL: {resp.text}", flush=True)
+        except Exception as e:
+            print(f"⚠️ Error cargando oportunidad completa: {e}", flush=True)
 
-        return formatted_list
-    except Exception as e:
-        print(f"⚠️ Error GHL Advanced Extractor: {e}")
-        return []
+    print("🧪 [DEBUG CONTACT] Custom Fields del Contacto:", flush=True)
+    for cf in contact.get("customFields", []) or []:
+        print({
+            "id": cf.get("id"),
+            "key": cf.get("key"),
+            "name": cf.get("name"),
+            "value": cf.get("value"),
+            "fieldValue": cf.get("fieldValue"),
+        }, flush=True)
+
+    # 🛠️ SUMAMOS TODO AL ESCÁNER: Custom Fields (Contact + Opp) + Form Fields (Contact + Opp)
+    contact["customFields"] = (contact.get("customFields", []) or []) + cf_opp + ff_opp + (contact.get("formFields", []) or [])
+
+    fields = _extract_project_fields(contact)
+    print(f"🚀 [ENRICH] Foto final encontrada: {fields.get('foto_edificio')}", flush=True)
+    direccion_parts = [p for p in [fields["tipo_via"], fields["nombre_via"], fields["numeracion_via"], fields["distrito"]] if p]
+    
+    opp_summary["direccion"] = " ".join(direccion_parts) if direccion_parts else "No especificada"
+    opp_summary["inmobiliaria"] = fields["inmobiliaria"]
+    opp_summary["coordenadas"] = fields["coordenadas"]
+    
+    if fields["foto_edificio"]:
+        opp_summary["foto"] = fields["foto_edificio"]
+
+    return opp_summary
 
 
 def get_pipeline_summary():
@@ -144,3 +358,39 @@ def get_pipeline_summary():
     except Exception as e:
         print(f"⚠️ Error GHL Summary: {e}")
         return []
+
+
+def download_image_bytes(url: str) -> bytes:
+    """Descarga los bytes de una imagen desde GHL usando autenticación."""
+    if not url:
+        return None
+    headers = {}
+    if "leadconnectorhq.com" in url or "gohighlevel.com" in url:
+        headers = {
+            "Authorization": f"Bearer {config.GHL_TOKEN}",
+            "Version": "2021-04-15",
+            "Accept": "*/*"
+        }
+    try:
+        resp = requests.get(url, headers=headers, timeout=30, allow_redirects=True)
+        print(f"📸 [GHL Client] URL: {url}")
+        print(f"📸 [GHL Client] Status: {resp.status_code}")
+        
+        if resp.status_code == 200:
+            raw_bytes = resp.content
+            
+            # 🛠️ CONVERTIR IMAGEN A JPEG (Evita que WhatsApp la rechace)
+            if PILImage:
+                try:
+                    img = PILImage.open(io.BytesIO(raw_bytes))
+                    img = img.convert("RGB")
+                    out_bytes = io.BytesIO()
+                    img.save(out_bytes, format="JPEG", quality=90)
+                    return out_bytes.getvalue()
+                except Exception as e:
+                    print(f"⚠️ Error convirtiendo imagen: {e}")
+                    
+            return raw_bytes
+    except Exception as e:
+        print(f"⚠️ Excepción descargando imagen: {e}")
+    return None
