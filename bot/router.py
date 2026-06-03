@@ -64,7 +64,9 @@ def procesar_flujo_bot(session_id: str, phone_clean: str, user_input: str, messa
                     if enriched_opp.get("foto"):
                         img_bytes = ghl_client.download_image_bytes(enriched_opp["foto"])
                         if img_bytes:
-                            openwa_client.send_whatsapp_image(session_id, phone_clean, img_bytes, "📸 Foto del Proyecto")
+                            # 🛠️ CORRECCIÓN 400: Asegurar el formato @c.us usando el teléfono real de la BD
+                            target_jid = f"{user['phone']}@c.us" if user.get("phone") else f"{phone_clean}@c.us"
+                            openwa_client.send_whatsapp_image(session_id, target_jid, img_bytes, "📸 Foto del Proyecto")
 
                     return menus.mostrar_detalles_oportunidad(enriched_opp)
                 return menus.mostrar_oportunidades_resumidas(opportunities) + "\n\n⚠️ Número inválido. Seleccione un número de la lista o *0* para volver."

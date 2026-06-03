@@ -365,7 +365,7 @@ def get_pipeline_summary():
 
 
 def download_image_bytes(url: str) -> bytes:
-    """Descarga los bytes de una imagen desde GHL usando autenticación."""
+    """Descarga los bytes de una imagen desde GHL usando autenticación y la comprime para evitar error 413."""
     if not url:
         return None
     headers = {}
@@ -383,16 +383,30 @@ def download_image_bytes(url: str) -> bytes:
         if resp.status_code == 200:
             raw_bytes = resp.content
 
-            # 🛠️ CONVERTIR IMAGEN A JPEG (Evita que WhatsApp la rechace)
+            # 🛠️ CONVERTIR Y COMPRIMIR IMAGEN A JPEG (Evita el Error 413 de WhatsApp)
             if PILImage:
                 try:
                     img = PILImage.open(io.BytesIO(raw_bytes))
                     img = img.convert("RGB")
+
+                    # 1. Redimensionar de forma más estricta (máximo 800x800, igual que WhatsApp nativo)
+                    img.thumbnail((800, 800))
+
                     out_bytes = io.BytesIO()
-                    img.save(out_bytes, format="JPEG", quality=90)
-                    return out_bytes.getvalue()
+                    # 2. Reducir más la calidad para garantizar un payload ligero
+                    img.save(out_bytes, format="JPEG", quality=50, optimize=True)
+
+                    final_bytes = out_bytes.getvalue()
+
+                    # Mostrar el peso aproximado en KB en la consola para depurar
+                    peso_kb = len(final_bytes) / 1024
+                    print(f"📸 [GHL Client] Imagen comprimida con éxito. Peso final: {peso_kb:.2f} KB")
+
+                    return final_bytes
                 except Exception as e:
-                    print(f"⚠️ Error convirtiendo imagen: {e}")
+                    print(f"⚠️ Error convirtiendo/comprimiendo imagen: {e}")
+            else:
+                print("⚠️ [ADVERTENCIA] La librería Pillow no está instalada. Enviando imagen original sin comprimir.")
 
             return raw_bytes
     except Exception as e:

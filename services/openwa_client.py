@@ -1,6 +1,7 @@
 import requests
 import base64
 import config
+import os
 
 def get_chat_id_for_sending(session_id: str, contact_id: str):
     """Resuelve un chatId válido para enviar mensajes, convirtiendo @lid si es necesario."""
@@ -112,31 +113,35 @@ def get_contact_phone(session_id: str, contact_id: str):
 
 
 def send_whatsapp_image(session_id: str, chat_id: str, image_bytes: bytes, caption: str = ""):
-    """Convierte los bytes en imagen y los envía a WhatsApp (WAHA)."""
+    """Envía una imagen usando el mé_todo Base64 documentado para WAHA/OpenWA."""
     chat_id = get_chat_id_for_sending(session_id, chat_id)
     url = f"{config.OPENWA_BASE_URL}/sessions/{session_id}/messages/send-image"
-    
+
     headers = {
         "X-API-Key": config.OPENWA_API_KEY,
         "Content-Type": "application/json"
     }
 
-    b64_data = base64.b64encode(image_bytes).decode('utf-8')
-    data_uri = f"data:image/jpeg;base64,{b64_data}"
-
-    payload = {
-        "chatId": chat_id,
-        "file": data_uri,
-        "caption": caption
-    }
-
     try:
+        # Convertir los bytes de la imagen a un string Base64
+        b64_string = base64.b64encode(image_bytes).decode('utf-8')
+        
+        # Construir el payload JSON exactamente como lo espera la API (Opción 2)
+        payload = {
+            "chatId": chat_id,
+            "caption": caption,
+            "base64": b64_string,
+            "mimetype": "image/jpeg",
+            "filename": "proyecto.jpg"
+        }
+
+        # Enviar la petición POST con el payload JSON
         response = requests.post(url, headers=headers, json=payload)
 
         print("📤 [OpenWA IMG] Status:", response.status_code)
-        print("📤 [OpenWA IMG] Response:", response.text[:500])
-
+        
         if response.status_code not in [200, 201]:
+            print("📤 [OpenWA IMG] Error Response:", response.text[:500])
             return None
 
         return response.json() if response.text else True
