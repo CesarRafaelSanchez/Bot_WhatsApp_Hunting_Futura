@@ -130,10 +130,16 @@ def mostrar_detalles_oportunidad(opp: dict) -> str:
     reply += f"📍 *Dirección:* {opp['direccion']}\n"
     reply += f"📌 *Coordenadas:* {opp.get('coordenadas', 'No especificada')}\n"
     
-    if opp.get('foto'):
+    hay_foto = False
+    if opp.get('foto_edificio'):
         reply += f"📸 *Foto del Edificio:* Adjunta arriba ☝️\n"
-    else:
-        reply += f"📸 Aún no se llena la ficha de datos\n"
+        hay_foto = True
+    if opp.get('foto_montantes'):
+        reply += f"📸 *Foto de Montantes:* Adjunta arriba ☝️\n"
+        hay_foto = True
+        
+    if not hay_foto:
+        reply += f"📸 Aún no se llena la ficha de datos (Sin fotos)\n"
     
     reply += "\n*0* Volver al Menú Principal"
     return reply

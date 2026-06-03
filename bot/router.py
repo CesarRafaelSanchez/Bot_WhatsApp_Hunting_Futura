@@ -59,12 +59,20 @@ def procesar_flujo_bot(session_id: str, phone_clean: str, user_input: str, messa
                     print(f"➡️ [ROUTER] Usuario seleccionó oportunidad: {selected_opp.get('name')}", flush=True)
                     enriched_opp = ghl_client.enrich_opportunity(selected_opp)
 
-                    print(f"➡️ [ROUTER] Foto lista para enviar: {enriched_opp.get('foto')}", flush=True)
-                    # 📸 DESCARGAR Y ENVIAR LA FOTO POR WHATSAPP SI EXISTE
-                    if enriched_opp.get("foto"):
-                        img_bytes = ghl_client.download_image_bytes(enriched_opp["foto"])
+                    # 📸 DESCARGAR Y ENVIAR LAS FOTOS POR WHATSAPP SI EXISTEN
+                    target_jid = f"{user['phone']}@c.us" if user.get("phone") else f"{phone_clean}@c.us"
+
+                    if enriched_opp.get("foto_edificio"):
+                        print(f"➡️ [ROUTER] Descargando y enviando foto del edificio: {enriched_opp['foto_edificio']}", flush=True)
+                        img_bytes = ghl_client.download_image_bytes(enriched_opp["foto_edificio"])
                         if img_bytes:
-                            openwa_client.send_whatsapp_image(session_id, phone_clean, img_bytes, "📸 Foto del Proyecto")
+                            openwa_client.send_whatsapp_image(session_id, target_jid, img_bytes, "📸 Foto del Edificio")
+
+                    if enriched_opp.get("foto_montantes"):
+                        print(f"➡️ [ROUTER] Descargando y enviando foto de montantes: {enriched_opp['foto_montantes']}", flush=True)
+                        img_bytes = ghl_client.download_image_bytes(enriched_opp["foto_montantes"])
+                        if img_bytes:
+                            openwa_client.send_whatsapp_image(session_id, target_jid, img_bytes, "📸 Foto de Montantes")
 
                     return menus.mostrar_detalles_oportunidad(enriched_opp)
                 return menus.mostrar_oportunidades_resumidas(opportunities) + "\n\n⚠️ Número inválido. Seleccione un número de la lista o *0* para volver."

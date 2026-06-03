@@ -3,6 +3,7 @@ import config
 import json
 import io
 import re
+
 try:
     from PIL import Image as PILImage
 except ImportError:
@@ -29,7 +30,7 @@ FIELD_ID_MAP = {
 def _get_url_from_value(val) -> str:
     if not val:
         return ""
-        
+
     # 🛠️ GHL a veces manda la lista camuflada como string '["hash"]'
     if isinstance(val, str):
         val_str = val.strip()
@@ -43,7 +44,7 @@ def _get_url_from_value(val) -> str:
 
     if isinstance(val, list) and len(val) > 0:
         val = val[0]
-        
+
     if isinstance(val, dict):
         val = val.get("url") or val.get("value") or val.get("fieldValue") or val.get("downloadUrl") or ""
 
@@ -53,7 +54,7 @@ def _get_url_from_value(val) -> str:
     match = re.search(r'(https?://[^\s\]"\'}]+)', val_str)
     if match:
         return match.group(1)
-        
+
     # 🚀 EXTRACTOR 2: Si GHL mandó solo el ID del documento (como el código largo que encontraste)
     clean_val = re.sub(r'[^a-zA-Z0-9_-]', '', val_str)
     if len(clean_val) > 20:
@@ -84,14 +85,15 @@ def _extract_project_fields(contact: dict) -> dict:
     coordenadas = "No especificada"
     inmobiliaria = "No especificada"
     foto_edificio = None
+    foto_montantes = None
 
     for field in contact.get("customFields", []) or []:
         value = field.get("value")
-        
+
         # 🛠️ CORRECCIÓN CRÍTICA: GHL v2 usa 'fieldValue' en las Oportunidades en lugar de 'value'
         if value is None:
             value = field.get("fieldValue")
-            
+
         if value is None or value == "" or value == []:
             continue
 
@@ -120,6 +122,10 @@ def _extract_project_fields(contact: dict) -> dict:
                 val_url = _get_url_from_value(value)
                 if val_url and val_url.startswith("http") and not foto_edificio:
                     foto_edificio = val_url
+            elif mapped == "foto_montantes":
+                val_url = _get_url_from_value(value)
+                if val_url and val_url.startswith("http") and not foto_montantes:
+                    foto_montantes = val_url
             continue
 
         if field_key == "cf_inmobiliaria":
@@ -135,14 +141,15 @@ def _extract_project_fields(contact: dict) -> dict:
         elif field_key == "cf_coordenadas":
             coordenadas = normalized_value
         elif "foto" in field_key or "foto" in field_name:
-            # 🛡️ BLOQUEO: Ignorar "montantes" explícitamente porque solo queremos el edificio
-            if "montante" in field_key or "montante" in field_name:
-                continue
-                
             val_url = _get_url_from_value(value)
-            print(f"🕵️‍♂️ [EXTRACT] Evaluando campo '{field_name}' / '{field_key}' -> URL extraída: '{val_url}'", flush=True)
-            if val_url and val_url.startswith("http") and not foto_edificio:
-                foto_edificio = val_url
+            print(f"🕵️‍♂️ [EXTRACT] Evaluando campo '{field_name}' / '{field_key}' -> URL extraída: '{val_url}'",
+                  flush=True)
+            if "montante" in field_key or "montante" in field_name:
+                if val_url and val_url.startswith("http") and not foto_montantes:
+                    foto_montantes = val_url
+            else:
+                if val_url and val_url.startswith("http") and not foto_edificio:
+                    foto_edificio = val_url
 
     if not distrito:
         for tag in contact.get("tags", []) or []:
@@ -158,7 +165,63 @@ def _extract_project_fields(contact: dict) -> dict:
         "distrito": distrito,
         "coordenadas": coordenadas,
         "foto_edificio": foto_edificio,
+        "foto_montantes": foto_montantes,
     }
+
+
+def get_photos_from_ghl_system_api(opp_id: str, contact_id: str, project_name: str):
+    import os
+    import requests
+    ghl_system_url = os.getenv("GHL_SYSTEM_API_URL", "http://localhost:5001")
+
+    posibles_ids = [opp_id, contact_id, project_name]
+    for identifier in posibles_ids:
+        if not identifier:
+            continue
+        try:
+            url = f"{ghl_system_url}/api/cache/{identifier}"
+            resp = requests.get(url, timeout=5)
+            if resp.status_code == 200:
+                datos = resp.json()
+                foto_edificio = None
+                foto_montantes = None
+
+                # 🚀 1. Intentamos usar las rutas de las imágenes locales guardadas en la caché de GHL_System
+                path_edificio = datos.get("foto_edificio_path")
+                path_montantes = datos.get("foto_montantes_path")
+
+                if path_edificio:
+                    filename_edificio = os.path.basename(path_edificio)
+                    foto_edificio = f"{ghl_system_url}/api/cache/files/{filename_edificio}"
+                    print(f"📸 [API CACHE BOT] Detectada foto edificio local en caché: {foto_edificio}", flush=True)
+
+                if path_montantes:
+                    filename_montantes = os.path.basename(path_montantes)
+                    foto_montantes = f"{ghl_system_url}/api/cache/files/{filename_montantes}"
+                    print(f"📸 [API CACHE BOT] Detectada foto montantes local en caché: {foto_montantes}", flush=True)
+
+                # Fallback: Si no existen las rutas locales, usamos los enlaces originales de GHL
+                if not foto_edificio:
+                    val_edificio = datos.get("cf_foto_edificio")
+                    if val_edificio:
+                        if isinstance(val_edificio, list) and len(val_edificio) > 0:
+                            foto_edificio = val_edificio[0]
+                        elif isinstance(val_edificio, str):
+                            foto_edificio = val_edificio
+
+                if not foto_montantes:
+                    val_montantes = datos.get("cf_foto_montantes")
+                    if val_montantes:
+                        if isinstance(val_montantes, list) and len(val_montantes) > 0:
+                            foto_montantes = val_montantes[0]
+                        elif isinstance(val_montantes, str):
+                            foto_montantes = val_montantes
+
+                return foto_edificio, foto_montantes
+        except Exception as e:
+            print(f"⚠️ Error al conectar con API de GHL_System para '{identifier}': {e}", flush=True)
+    return None, None
+
 
 
 def _build_opportunity_summary(opp: dict, fetch_details: bool = False) -> dict:
@@ -191,27 +254,36 @@ def _build_opportunity_summary(opp: dict, fetch_details: bool = False) -> dict:
 
     direccion = " ".join(direccion_parts) if direccion_parts else "No especificada"
 
-    foto_url = None
-    if fields["foto_edificio"]:
-        foto_url = fields["foto_edificio"]
+    foto_edificio = fields["foto_edificio"]
+    foto_montantes = fields["foto_montantes"]
+
+    # 🚀 PRIORIDAD CACHÉ LOCAL: Buscamos siempre primero las fotos locales en GHL_System para evitar URLs purgadas
+    if fetch_details:
+        cache_edificio, cache_montantes = get_photos_from_ghl_system_api(opp.get("id"), contact_id, opp.get("name"))
+        if cache_edificio:
+            foto_edificio = cache_edificio
+        if cache_montantes:
+            foto_montantes = cache_montantes
 
     return {
         "id": opp.get("id"),
         "name": opp.get("name", "Sin Nombre").upper(),
         "direccion": direccion,
         "inmobiliaria": fields["inmobiliaria"],
-        "foto": foto_url,
+        "foto": foto_edificio,
+        "foto_edificio": foto_edificio,
+        "foto_montantes": foto_montantes,
         "coordenadas": fields["coordenadas"],
         "stage": stage_id,
         "contact_id": contact_id,
     }
 
 
+
 def _search_opportunities(params: dict, fetch_details: bool = False) -> list:
     try:
         response = requests.get(f"{BASE_URL}/opportunities/search", headers=HEADERS_GHL, params=params)
         if response.status_code != 200:
-            print(f"📡 [DEBUG GHL Opción 1] Error Body: {response.text}")
             return []
 
         opps = response.json().get("opportunities", [])
@@ -271,13 +343,13 @@ def enrich_opportunity(opp_summary: dict) -> dict:
         try:
             # 🛠️ EXIGIMOS A GHL QUE INCLUYA LOS CUSTOM FIELDS
             params_opp = {"location_id": config.LOCATION_ID, "include": "customFields,formFields"}
-            
+
             resp = requests.get(f"{BASE_URL}/opportunities/{opp_id}", headers=HEADERS_GHL, params=params_opp)
-            
+
             print(f"🚀 [ENRICH] Respuesta de GHL (Status): {resp.status_code}", flush=True)
             if resp.status_code == 200:
                 opp_data = resp.json().get("opportunity") or resp.json()
-                
+
                 print("🧪 [DEBUG OPP] Keys oportunidad:", list(opp_data.keys()), flush=True)
                 print("🧪 [DEBUG OPP] Custom Fields:", flush=True)
                 for cf in opp_data.get("customFields", []) or []:
@@ -298,17 +370,17 @@ def enrich_opportunity(opp_summary: dict) -> dict:
                         "value": ff.get("value"),
                         "fieldValue": ff.get("fieldValue"),
                     }, flush=True)
-                
+
                 cf_opp = opp_data.get("customFields", []) or []
                 ff_opp = opp_data.get("formFields", []) or []
-                
+
                 # 🛠️ FALLBACK: Si GHL aplana los campos directamente en el objeto
                 for k, v in opp_data.items():
                     k_lower = k.lower()
                     if k in FIELD_ID_MAP or "foto" in k_lower or "archivo" in k_lower:
                         if not any(cf.get("id") == k for cf in cf_opp):
                             cf_opp.append({"id": k, "name": k, "fieldValue": v})
-                            
+
             else:
                 print(f"⚠️ [ENRICH] Falló la petición a GHL: {resp.text}", flush=True)
         except Exception as e:
@@ -325,30 +397,48 @@ def enrich_opportunity(opp_summary: dict) -> dict:
         }, flush=True)
 
     # 🛠️ SUMAMOS TODO AL ESCÁNER: Custom Fields (Contact + Opp) + Form Fields (Contact + Opp)
-    contact["customFields"] = (contact.get("customFields", []) or []) + cf_opp + ff_opp + (contact.get("formFields", []) or [])
+    contact["customFields"] = (contact.get("customFields", []) or []) + cf_opp + ff_opp + (
+                contact.get("formFields", []) or [])
 
     fields = _extract_project_fields(contact)
-    print(f"🚀 [ENRICH] Foto final encontrada: {fields.get('foto_edificio')}", flush=True)
-    direccion_parts = [p for p in [fields["tipo_via"], fields["nombre_via"], fields["numeracion_via"], fields["distrito"]] if p]
-    
+    print(f"🚀 [ENRICH] Foto final encontrada en GHL: {fields.get('foto_edificio')}", flush=True)
+    direccion_parts = [p for p in
+                       [fields["tipo_via"], fields["nombre_via"], fields["numeracion_via"], fields["distrito"]] if p]
+
     opp_summary["direccion"] = " ".join(direccion_parts) if direccion_parts else "No especificada"
     opp_summary["inmobiliaria"] = fields["inmobiliaria"]
     opp_summary["coordenadas"] = fields["coordenadas"]
-    
-    if fields["foto_edificio"]:
-        opp_summary["foto"] = fields["foto_edificio"]
+
+    foto_edificio = fields.get("foto_edificio")
+    foto_montantes = fields.get("foto_montantes")
+
+    # 🚀 PRIORIDAD CACHÉ LOCAL: Buscamos siempre primero las fotos locales en la caché de GHL_System para evitar URLs de GHL muertas
+    print(f"🔍 [CACHE GHL_SYSTEM] Buscando fotos locales en caché para: {opp_summary.get('name')}", flush=True)
+    cache_edificio, cache_montantes = get_photos_from_ghl_system_api(opp_id, contact_id, opp_summary.get("name"))
+    if cache_edificio:
+        foto_edificio = cache_edificio
+        print(f"✅ [CACHE GHL_SYSTEM] Foto Edificio local seleccionada: {foto_edificio}", flush=True)
+    if cache_montantes:
+        foto_montantes = cache_montantes
+        print(f"✅ [CACHE GHL_SYSTEM] Foto Montantes local seleccionada: {foto_montantes}", flush=True)
+
+    if foto_edificio:
+        opp_summary["foto"] = foto_edificio
+        opp_summary["foto_edificio"] = foto_edificio
+    if foto_montantes:
+        opp_summary["foto_montantes"] = foto_montantes
 
     return opp_summary
 
 
 def get_pipeline_summary():
-    """Obtiene todas las oportunidades del pipeline para el reporte del CEO (Limitado a 20 por página de consulta)."""
+    """Obtiene todas las oportunidades del pipeline para el reporte del CEO."""
     url = "https://services.leadconnectorhq.com/opportunities/search"
 
     params = {
         "location_id": config.LOCATION_ID,
         "pipeline_id": config.PIPELINE_ID,
-        "limit": 20
+        "limit": 100
     }
 
     try:
@@ -362,7 +452,7 @@ def get_pipeline_summary():
 
 
 def download_image_bytes(url: str) -> bytes:
-    """Descarga los bytes de una imagen desde GHL usando autenticación."""
+    """Descarga los bytes de una imagen desde GHL usando autenticación y la comprime para evitar error 413."""
     if not url:
         return None
     headers = {}
@@ -376,21 +466,35 @@ def download_image_bytes(url: str) -> bytes:
         resp = requests.get(url, headers=headers, timeout=30, allow_redirects=True)
         print(f"📸 [GHL Client] URL: {url}")
         print(f"📸 [GHL Client] Status: {resp.status_code}")
-        
+
         if resp.status_code == 200:
             raw_bytes = resp.content
-            
-            # 🛠️ CONVERTIR IMAGEN A JPEG (Evita que WhatsApp la rechace)
+
+            # 🛠️ CONVERTIR Y COMPRIMIR IMAGEN A JPEG (Evita el Error 413 de WhatsApp)
             if PILImage:
                 try:
                     img = PILImage.open(io.BytesIO(raw_bytes))
                     img = img.convert("RGB")
+
+                    # 1. Redimensionar de forma más estricta (máximo 800x800, igual que WhatsApp nativo)
+                    img.thumbnail((800, 800))
+
                     out_bytes = io.BytesIO()
-                    img.save(out_bytes, format="JPEG", quality=90)
-                    return out_bytes.getvalue()
+                    # 2. Reducir más la calidad para garantizar un payload ligero
+                    img.save(out_bytes, format="JPEG", quality=50, optimize=True)
+
+                    final_bytes = out_bytes.getvalue()
+
+                    # Mostrar el peso aproximado en KB en la consola para depurar
+                    peso_kb = len(final_bytes) / 1024
+                    print(f"📸 [GHL Client] Imagen comprimida con éxito. Peso final: {peso_kb:.2f} KB")
+
+                    return final_bytes
                 except Exception as e:
-                    print(f"⚠️ Error convirtiendo imagen: {e}")
-                    
+                    print(f"⚠️ Error convirtiendo/comprimiendo imagen: {e}")
+            else:
+                print("⚠️ [ADVERTENCIA] La librería Pillow no está instalada. Enviando imagen original sin comprimir.")
+
             return raw_bytes
     except Exception as e:
         print(f"⚠️ Excepción descargando imagen: {e}")

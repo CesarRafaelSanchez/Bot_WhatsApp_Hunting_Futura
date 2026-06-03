@@ -5,6 +5,11 @@ from database import users_model
 
 app = Flask(__name__)
 
+# Caché en memoria para deduplicar webhooks repetidos por timeouts (WAHA/OpenWA retries)
+PROCESSED_MESSAGE_IDS = set()
+PROCESSED_MESSAGE_IDS_LIST = []
+MAX_CACHE_SIZE = 200
+
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -18,6 +23,21 @@ def webhook():
     message_data = payload.get("data", {})
     from_jid = message_data.get("from")
     user_input = message_data.get("body", "").strip()
+
+    # Deduplicación por ID único de mensaje de WhatsApp
+    message_id = message_data.get("id")
+    if message_id:
+        if message_id in PROCESSED_MESSAGE_IDS:
+            print(f"👻 [DEDUPLICADOR] Mensaje duplicado detectado y omitido: {message_id}", flush=True)
+            return jsonify({"status": "ignored_duplicate"}), 200
+
+        # Guardar en caché
+        PROCESSED_MESSAGE_IDS.add(message_id)
+        PROCESSED_MESSAGE_IDS_LIST.append(message_id)
+        if len(PROCESSED_MESSAGE_IDS_LIST) > MAX_CACHE_SIZE:
+            oldest = PROCESSED_MESSAGE_IDS_LIST.pop(0)
+            PROCESSED_MESSAGE_IDS.discard(oldest)
+
 
     if not from_jid:
         return jsonify({"status": "no_sender"}), 200
