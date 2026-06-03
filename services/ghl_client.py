@@ -26,23 +26,6 @@ FIELD_ID_MAP = {
 }
 
 
-<<<<<<< HEAD
-def get_opportunities_by_user(ghl_user_id: str):
-    """Obtiene y formatea las oportunidades operativas activas para el Hunter (Opción 1 - Máximo 20 por API GHL)."""
-    url = "https://services.leadconnectorhq.com/opportunities/search"
-
-    params = {
-        "location_id": config.LOCATION_ID,
-        "pipeline_id": config.PIPELINE_ID,
-        "assigned_to": ghl_user_id,
-        "limit": 20  # Corregido: GHL v2 rechaza valores mayores a 20 en este endpoint
-    }
-
-    try:
-        response = requests.get(url, headers=HEADERS_GHL, params=params)
-
-        print(f"📡 [DEBUG GHL Opción 1] Status: {response.status_code}")
-=======
 def _get_url_from_value(val) -> str:
     if not val:
         return ""
@@ -227,49 +210,12 @@ def _build_opportunity_summary(opp: dict, fetch_details: bool = False) -> dict:
 def _search_opportunities(params: dict, fetch_details: bool = False) -> list:
     try:
         response = requests.get(f"{BASE_URL}/opportunities/search", headers=HEADERS_GHL, params=params)
->>>>>>> dev-mathias
         if response.status_code != 200:
             print(f"📡 [DEBUG GHL Opción 1] Error Body: {response.text}")
             return []
 
         opps = response.json().get("opportunities", [])
-<<<<<<< HEAD
-        formatted_list = []
-
-        for opp in opps:
-            contact = opp.get("contact", {})
-            direccion = contact.get("address", "No especificada") or "No especificada"
-            inmobiliaria = "No especificada"
-            foto_url = None
-
-            custom_fields = contact.get("customFields", []) + opp.get("customFields", [])
-            for field in custom_fields:
-                f_id = str(field.get("id", "")).lower()
-                f_key = str(field.get("key", "")).lower()
-                f_value = field.get("value", "")
-
-                if not f_value:
-                    continue
-
-                if "inmobiliaria" in f_key or "constructora" in f_key or "inmobiliaria" in f_id:
-                    inmobiliaria = str(f_value)
-                elif "foto" in f_key or "imagen" in f_key or "foto" in f_id:
-                    foto_url = str(f_value)
-                elif "direccion" in f_key or "dirección" in f_key or "direccion" in f_id:
-                    direccion = str(f_value)
-
-            formatted_list.append({
-                "name": opp.get("name", "Sin Nombre").upper(),
-                "direccion": direccion,
-                "inmobiliaria": inmobiliaria,
-                "foto": foto_url,
-                "stage": opp.get("pipelineStageId", "En proceso")
-            })
-
-        return formatted_list
-=======
         return [_build_opportunity_summary(opp, fetch_details) for opp in opps]
->>>>>>> dev-mathias
     except Exception as e:
         print(f"⚠️ Error GHL Search: {e}")
         return []
@@ -302,17 +248,8 @@ def get_opportunities_advanced(ghl_user_id: str, search_query: str = None, stage
     if stage_id:
         params["pipeline_stage_id"] = stage_id
 
-<<<<<<< HEAD
-    try:
-        response = requests.get(url, headers=HEADERS_GHL, params=params)
-
-        print(f"📡 [DEBUG GHL Opción 4] Status: {response.status_code}")
-        if response.status_code != 200:
-            return []
-=======
     # ⏳ SLOW FETCH: Trae todos los detalles porque se muestran directamente
     return _search_opportunities(params, fetch_details=True)
->>>>>>> dev-mathias
 
 
 def enrich_opportunity(opp_summary: dict) -> dict:
