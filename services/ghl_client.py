@@ -191,12 +191,12 @@ def get_photos_from_ghl_system_api(opp_id: str, contact_id: str, project_name: s
                 path_montantes = datos.get("foto_montantes_path")
 
                 if path_edificio:
-                    filename_edificio = os.path.basename(path_edificio)
+                    filename_edificio = path_edificio.replace('\\', '/').split('/')[-1]
                     foto_edificio = f"{ghl_system_url}/api/cache/files/{filename_edificio}"
                     print(f"📸 [API CACHE BOT] Detectada foto edificio local en caché: {foto_edificio}", flush=True)
 
                 if path_montantes:
-                    filename_montantes = os.path.basename(path_montantes)
+                    filename_montantes = path_montantes.replace('\\', '/').split('/')[-1]
                     foto_montantes = f"{ghl_system_url}/api/cache/files/{filename_montantes}"
                     print(f"📸 [API CACHE BOT] Detectada foto montantes local en caché: {foto_montantes}", flush=True)
 
