@@ -1,14 +1,16 @@
 import sqlite3
 import os
-from database.connection import get_db_connection
+from database.connection import get_db_connection, DB_PATH
 from datetime import datetime
 
 
 def inicializar_base_de_datos():
-    DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), 'hunting_bot.db'))
     if os.path.exists(DB_PATH):
-        os.remove(DB_PATH)
-        print("🧹 Base de datos antigua eliminada.")
+        try:
+            os.remove(DB_PATH)
+            print(f"🧹 Base de datos antigua eliminada en: {DB_PATH}")
+        except Exception as e:
+            print(f"⚠️ No se pudo eliminar la DB: {e}")
 
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -66,11 +68,26 @@ def inicializar_base_de_datos():
                    )
                    """)
 
+    # NUEVA: Tabla de simulaciones para rol TI
+    cursor.execute("""
+                   CREATE TABLE IF NOT EXISTS simulations
+                   (
+                       ti_phone
+                       TEXT
+                       PRIMARY
+                       KEY,
+                       simulated_phone
+                       TEXT
+                       NOT
+                       NULL
+                   )
+                   """)
+
     usuarios_iniciales = [
-        ("51932068040", "206893205217341", "Rafael Sanchez TI", "PaTMhzFbNbsRTvE3os5o", "TI"),
-        ("51957770680", None, "Humberto Benavides", "qOREYbNFDXYgi4ePmLT6", "CEO"),
-        ("51934841065", None, "Mathias Villena TI", "51PrMSG3YMKkq0XlKdrY", "TI"),
-        ("51916064524", None, "Administrador TI", "PaTMhzFbNbsRTvE3os5o", "TI")
+        ("51932068040", None, "Rafael Sanchez TI", "PaTMhzFbNbsRTvE3os5o", "TI"),
+        ("51957770680", "80754579107843", "Humberto Benavides", "qOREYbNFDXYgi4ePmLT6", "HUNTER"),
+        ("51934841065", "169917999485122", "Mathias Villena TI", "51PrMSG3YMKkq0XlKdrY", "TI"),
+        ("51918371086", "271901813375023", "Jean Pierre", "UzEVMjDvEHlw6YUAj3aJ", "HUNTER")
     ]
 
     ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

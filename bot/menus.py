@@ -1,5 +1,27 @@
 from services import ghl_client
 
+STAGE_NAMES = {
+    "4d5d6906-d70f-466a-9b9b-0acf0a203138": "Edificio Prospectado",
+    "d8481911-0c96-4a53-a246-3f43170a6d24": "Prospecto Aceptado",
+    "164e9a2c-2ab8-4bd1-91b9-c2c3aa2dd85d": "Pendiente Envió de Formulario de Asignación",
+    "9a80e73d-3400-4a97-95f8-69daf0022903": "Formulario de Asignación/Reasignación Completado",
+    "76f257d1-73b2-46a5-86f6-0b83fc59b716": "Validación Back Office",
+    "24d7f973-ff62-4e0a-8b38-2585b53cc3b1": "Solicitud de Asignación/Reasignacion Enviada a WIN",
+    "fdc27149-b398-4ed7-9271-946c66dc9f0f": "Esperando Respuesta WIN",
+    "63afa897-dcb3-4d08-9a7a-c82f1e87c49f": "Asignación Aprobada",
+    "a6a2dcde-adf1-4c1a-b1f7-e4ea84c24515": "Asignación Rechazada",
+    "cdee1a56-b9e5-46e1-9cd4-442cae7b853e": "Pendiente Reasignación",
+    "07edaecc-8564-4618-a2be-bb9d7c81444c": "Pendiente Envío de Formulario Ficha de Datos",
+    "9ed38e74-7708-45cb-9211-89b28224edb7": "Formulario de Ficha de Datos Completado",
+    "72fa8462-287b-4410-a8ae-2f91ede38445": "Validación Back Office 2",
+    "085ad64f-769b-42f7-986d-6eef802f0634": "Ficha de Datos Enviada a WIN",
+    "f251b78c-b57f-4cbd-aa61-3653b54c7677": "Pendiente Inicio de Habilitación (construccion)",
+    "46400c15-10a3-4c96-a5b0-76f0cf65b753": "En Habilitación Técnica",
+    "5214c97a-30b6-44b4-8f6f-dd1798622a8b": "Standby por Accesos",
+    "dc5a218f-50a8-4bb6-9351-82b2f10d9886": "Habilitación Completa",
+    "b9549f80-9858-4e84-8afc-aacdcd4db23f": "Hunting Perdido/ No Recuperable"
+}
+
 
 def obtener_menu_principal(nombre: str, role: str) -> str:
     """Genera un menú completamente único y aislado según el Rol."""
@@ -18,7 +40,8 @@ def obtener_menu_principal(nombre: str, role: str) -> str:
             f"Por favor, seleccione una opción:\n\n"
             f"*[ 1 ]* Ver mis oportunidades asignadas en GHL\n"
             f"*[ 2 ]* Buscar proyecto por nombre\n"
-            f"*[ 3 ]* Filtrar oportunidades por estado"
+            f"*[ 3 ]* Filtrar oportunidades por estado\n"
+            f"*[ 4 ]* Consultar disponibilidad de edificio"
         )
     elif role_upper == "BACKOFFICE":
         return (
@@ -36,7 +59,8 @@ def obtener_menu_principal(nombre: str, role: str) -> str:
             f"*[ 1 ]* Ver mis oportunidades asignadas\n"
             f"*[ 2 ]* Ver resumen estratégico del Pipeline\n"
             f"*[ 3 ]* Panel de Administración de Usuarios ⚙️\n"
-            f"*[ 4 ]* Histórico de Proyectos (Simular Hunter) ⏳"
+            f"*[ 4 ]* Histórico de Proyectos ⏳\n"
+            f"*[ 5 ]* Entorno de Simulación 🎭"
         )
 
 
@@ -83,10 +107,15 @@ def formatear_lista_historico(opportunities) -> str:
     reply += "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n\n"
 
     for idx, opp in enumerate(opportunities, 1):
+        stage_id = opp.get("stage")
+        stage_name = STAGE_NAMES.get(stage_id, "Etapa Desconocida")
         reply += f"*{idx}. {opp['name']}*\n"
+        reply += f"🚩 *Etapa:* {stage_name}\n"
         reply += f"🏢 *Inmobiliaria:* {opp['inmobiliaria']}\n"
         reply += f"📍 *Dirección:* {opp['direccion']}\n"
         reply += f"📌 *Coordenadas:* {opp.get('coordenadas', 'No especificada')}\n"
+        reply += f"• *Supervisor:* {opp.get('supervisor') or 'Sin asignar'}\n"
+        reply += f"• *Ejecutivo:* {opp.get('ejecutivo') or 'Sin asignar'}\n"
         if opp.get('foto'):
             reply += f"📸 *Foto del Edificio:* Adjunta en el chat.\n"
         else:
@@ -125,10 +154,16 @@ def mostrar_oportunidades_asignadas(opportunities) -> str:
 
 def mostrar_detalles_oportunidad(opp: dict) -> str:
     """Muestra los detalles completos de una oportunidad seleccionada."""
+    stage_id = opp.get("stage")
+    stage_name = STAGE_NAMES.get(stage_id, "Etapa Desconocida")
+    
     reply = f"📌 *{opp['name']}*\n\n"
+    reply += f"🚩 *Etapa:* {stage_name}\n"
     reply += f"🏢 *Inmobiliaria:* {opp['inmobiliaria']}\n"
     reply += f"📍 *Dirección:* {opp['direccion']}\n"
     reply += f"📌 *Coordenadas:* {opp.get('coordenadas', 'No especificada')}\n"
+    reply += f"• *Supervisor:* {opp.get('supervisor') or 'Sin asignar'}\n"
+    reply += f"• *Ejecutivo:* {opp.get('ejecutivo') or 'Sin asignar'}\n"
     
     hay_foto = False
     if opp.get('foto_edificio'):

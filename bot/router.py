@@ -9,6 +9,31 @@ def procesar_flujo_bot(session_id: str, phone_clean: str, user_input: str, messa
 
     # 1. Buscar usuario en DB
     user = users_model.get_user_by_identifier(phone_clean)
+    
+    # Interceptar simulación para TI
+    is_simulating = False
+    simulated_name = ""
+    
+    if user and user["role"].upper() == "TI":
+        simulated_phone = users_model.get_simulated_user(phone_clean)
+        if simulated_phone:
+            if user_input.strip().upper() == "SALIR SIMULACION":
+                users_model.clear_simulation(phone_clean)
+                state_model.clear_user_state(phone_clean)
+                return f"✅ *Simulación finalizada.* Ha vuelto a su cuenta TI.\n\n{menus.obtener_menu_principal(user['name'], user['role'])}"
+            
+            simulated_user = users_model.get_user_by_identifier(simulated_phone)
+            if simulated_user:
+                print(f"🎭 [SIMULACIÓN] TI {phone_clean} simulando a {simulated_phone}")
+                is_simulating = True
+                simulated_name = simulated_user["name"]
+                
+                # Reemplazamos el usuario para el procesamiento, pero mantenemos los datos de contacto del TI
+                ti_phone = user["phone"]
+                ti_wa_id = user["whatsapp_id"]
+                user = simulated_user.copy()
+                user["phone"] = ti_phone
+                user["whatsapp_id"] = ti_wa_id
 
     # 2. AUTO-INDEXACIÓN AUTOMÁTICA
     if not user:
@@ -27,6 +52,15 @@ def procesar_flujo_bot(session_id: str, phone_clean: str, user_input: str, messa
     if not user:
         return "⚠️ *Acceso Restringido:* Su número no está autorizado en la red de Hunting."
 
+    reply_text = _procesar_flujo_bot_interno(session_id, phone_clean, user_input, message_data, user)
+    
+    if is_simulating:
+        return f"🎭 [MODO SIMULACIÓN: {simulated_name}]\n(Para salir escriba: SALIR SIMULACION)\n\n" + reply_text
+    
+    return reply_text
+
+
+def _procesar_flujo_bot_interno(session_id: str, phone_clean: str, user_input: str, message_data: dict, user: dict) -> str:
     role = user["role"].upper()
 
     # =========================================================
@@ -60,7 +94,14 @@ def procesar_flujo_bot(session_id: str, phone_clean: str, user_input: str, messa
                     enriched_opp = ghl_client.enrich_opportunity(selected_opp)
 
                     # 📸 DESCARGAR Y ENVIAR LAS FOTOS POR WHATSAPP SI EXISTEN
-                    target_jid = f"{user['phone']}@c.us" if user.get("phone") else f"{phone_clean}@c.us"
+                    if user.get("whatsapp_id") and user.get("whatsapp_id") not in ["None", "none", ""]:
+                        if "@" in user["whatsapp_id"]:
+                            target_jid = user["whatsapp_id"]
+                        else:
+                            suffix = "@lid" if len(user["whatsapp_id"]) > 12 else "@c.us"
+                            target_jid = f"{user['whatsapp_id']}{suffix}"
+                    else:
+                        target_jid = f"{user['phone']}@c.us" if user.get("phone") else f"{phone_clean}@c.us"
 
                     if enriched_opp.get("foto_edificio"):
                         print(f"➡️ [ROUTER] Descargando y enviando foto del edificio: {enriched_opp['foto_edificio']}", flush=True)
@@ -87,6 +128,47 @@ def procesar_flujo_bot(session_id: str, phone_clean: str, user_input: str, messa
             opps = ghl_client.get_opportunities_advanced(user["ghl_id"], search_query=user_input.strip())
             state_model.clear_user_state(phone_clean)
             return menus.formatear_lista_historico(opps) + "\n\n*0* Volver al Menú Principal"
+
+        elif state == "HUNTER_CONSULTAR_DISPONIBILIDAD" and role == "HUNTER":
+            from services import ghl_client
+            term = user_input.strip()
+            state_model.clear_user_state(phone_clean)
+            
+            results = ghl_client.consultar_disponibilidad(term)
+            if not results:
+                return f"✅ *Edificio Disponible:*\nEl edificio o dirección *{term.upper()}* no está asignado a nadie en el sistema. ¡Puedes iniciar el hunting!\n\n*0* Volver al Menú Principal"
+            
+            elif len(results) == 1:
+                row = results[0]
+                direccion_parts = [p for p in [row.get("tipo_via"), row.get("nombre_via"), row.get("numero_via"), row.get("urbanizacion"), row.get("distrito")] if p]
+                direccion = ", ".join(direccion_parts) if direccion_parts else "Sin dirección"
+                return (
+                    f"⚠️ *Edificio No Disponible:*\n"
+                    f"El edificio *{row['nombre_proyecto'].upper()}* ({direccion}) ya está registrado.\n"
+                    f"• *Gestor:* {row['gestor'] or 'Sin asignar'}\n"
+                    f"• *Supervisor:* {row.get('supervisor') or 'Sin asignar'}\n"
+                    f"• *Ejecutivo:* {row.get('ejecutivo') or 'Sin asignar'}\n\n"
+                    f"*0* Volver al Menú Principal"
+                )
+            else:
+                msg_parts = [
+                    f"⚠️ *Edificios Registrados:*\n"
+                    f"Hemos encontrado múltiples coincidencias para *{term.upper()}* en el sistema:\n"
+                ]
+                for idx, row in enumerate(results, 1):
+                    direccion_parts = [p for p in [row.get("tipo_via"), row.get("nombre_via"), row.get("numero_via"), row.get("urbanizacion"), row.get("distrito")] if p]
+                    direccion = ", ".join(direccion_parts) if direccion_parts else "Sin dirección"
+                    msg_parts.append(
+                        f"*{idx}. {row['nombre_proyecto'].upper()}* ({direccion})\n"
+                        f"   • *Gestor:* {row['gestor'] or 'Sin asignar'}\n"
+                        f"   • *Supervisor:* {row.get('supervisor') or 'Sin asignar'}\n"
+                        f"   • *Ejecutivo:* {row.get('ejecutivo') or 'Sin asignar'}"
+                    )
+                msg_parts.append(
+                    "\n*Si el edificio que estás consultando está en otra ubicación diferente a las anteriores, ¡está libre para hunting!*\n\n"
+                    "*0* Volver al Menú Principal"
+                )
+                return "\n".join(msg_parts)
 
         elif state == "PROJECTS_BY_STATE_SELECTION" and role in ["HUNTER", "TI", "BACKOFFICE", "CEO"]:
             from services import ghl_client
@@ -175,6 +257,10 @@ def procesar_flujo_bot(session_id: str, phone_clean: str, user_input: str, messa
         state_model.set_user_state(phone_clean, "PROJECTS_BY_STATE_SELECTION", {})
         return menus.obtener_menu_estado()
 
+    elif user_input == "4" and role == "HUNTER":
+        state_model.set_user_state(phone_clean, "HUNTER_CONSULTAR_DISPONIBILIDAD", {})
+        return "🔍 *Comprobador de Disponibilidad:*\n\nPor favor, escriba el nombre o dirección del edificio que desea consultar:"
+
     elif user_input == "2" and role in ["CEO", "BACKOFFICE", "TI"]:
         return menus.procesar_opcion_ceo()
 
@@ -192,6 +278,16 @@ def procesar_flujo_bot(session_id: str, phone_clean: str, user_input: str, messa
     elif user_input == "33" and role == "TI":
         state_model.set_user_state(phone_clean, "TI_MOD_TELEFONO")
         return "✏️ Ingrese el celular o WhatsApp ID del usuario a modificar:"
+
+    elif role == "TI" and state == "TI_INICIAR_SIMULACION":
+        simulated_phone = user_input.strip()
+        simulated_user = users_model.get_user_by_identifier(simulated_phone)
+        state_model.clear_user_state(phone_clean)
+        if not simulated_user:
+            return "❌ *Error:* No se encontró ningún usuario activo con ese número.\n\n" + menus.obtener_menu_principal(user["name"], role)
+        
+        users_model.set_simulation(phone_clean, simulated_phone)
+        return f"✅ *Simulación Iniciada* 🎭\n\nAhora está simulando a *{simulated_user['name']}* ({simulated_user['role']}).\n\n⚠️ Para volver a su cuenta de TI en cualquier momento, escriba exactamente: *SALIR SIMULACION*\n\n" + menus.obtener_menu_principal(simulated_user["name"], simulated_user["role"])
 
     elif user_input == "4" and role in ["HUNTER", "TI"]:
         return menus.obtener_menu_historico()
@@ -217,6 +313,10 @@ def procesar_flujo_bot(session_id: str, phone_clean: str, user_input: str, messa
     elif user_input == "43" and role in ["HUNTER", "TI"]:
         state_model.set_user_state(phone_clean, "HUNTER_BUSCAR_NOMBRE")
         return "🔍 *Buscador de Proyectos:*\n\nPor favor, escriba el nombre del edificio o proyecto que desea buscar:"
+
+    elif user_input == "5" and role == "TI":
+        state_model.set_user_state(phone_clean, "TI_INICIAR_SIMULACION")
+        return "🎭 *Entorno de Simulación*\n\nPor favor, ingrese el número de teléfono del usuario que desea simular (ej: 51957770680):"
 
     elif user_input == "0":
         state_model.clear_user_state(phone_clean)

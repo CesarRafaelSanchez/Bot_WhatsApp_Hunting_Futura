@@ -3,6 +3,7 @@ import config
 import json
 import io
 import re
+import os
 
 try:
     from PIL import Image as PILImage
@@ -86,6 +87,8 @@ def _extract_project_fields(contact: dict) -> dict:
     inmobiliaria = "No especificada"
     foto_edificio = None
     foto_montantes = None
+    supervisor = ""
+    ejecutivo = ""
 
     for field in contact.get("customFields", []) or []:
         value = field.get("value")
@@ -140,6 +143,10 @@ def _extract_project_fields(contact: dict) -> dict:
             distrito = normalized_value
         elif field_key == "cf_coordenadas":
             coordenadas = normalized_value
+        elif field_key in ["cf_supervisor_hunting", "cf_supervisor"] or "supervisor" in field_key or "supervisor" in field_name:
+            supervisor = normalized_value
+        elif field_key in ["cf_ejecutivo_principal", "cf_ejecutivo"] or "ejecutivo" in field_key or "ejecutivo" in field_name:
+            ejecutivo = normalized_value
         elif "foto" in field_key or "foto" in field_name:
             val_url = _get_url_from_value(value)
             print(f"🕵️‍♂️ [EXTRACT] Evaluando campo '{field_name}' / '{field_key}' -> URL extraída: '{val_url}'",
@@ -166,6 +173,8 @@ def _extract_project_fields(contact: dict) -> dict:
         "coordenadas": coordenadas,
         "foto_edificio": foto_edificio,
         "foto_montantes": foto_montantes,
+        "supervisor": supervisor,
+        "ejecutivo": ejecutivo,
     }
 
 
@@ -223,6 +232,24 @@ def get_photos_from_ghl_system_api(opp_id: str, contact_id: str, project_name: s
     return None, None
 
 
+def get_cached_details_from_ghl_system_api(opp_id: str, contact_id: str, project_name: str) -> dict:
+    import os
+    import requests
+    ghl_system_url = os.getenv("GHL_SYSTEM_API_URL", "http://localhost:5001")
+
+    posibles_ids = [opp_id, contact_id, project_name]
+    for identifier in posibles_ids:
+        if not identifier:
+            continue
+        try:
+            url = f"{ghl_system_url}/api/cache/{identifier}"
+            resp = requests.get(url, timeout=5)
+            if resp.status_code == 200:
+                return resp.json()
+        except Exception as e:
+            print(f"⚠️ Error al conectar con API de GHL_System para '{identifier}': {e}", flush=True)
+    return {}
+
 
 def _build_opportunity_summary(opp: dict, fetch_details: bool = False) -> dict:
     stage_id = opp.get("pipelineStageId", "")
@@ -256,14 +283,28 @@ def _build_opportunity_summary(opp: dict, fetch_details: bool = False) -> dict:
 
     foto_edificio = fields["foto_edificio"]
     foto_montantes = fields["foto_montantes"]
+    supervisor = fields["supervisor"]
+    ejecutivo = fields["ejecutivo"]
 
     # 🚀 PRIORIDAD CACHÉ LOCAL: Buscamos siempre primero las fotos locales en GHL_System para evitar URLs purgadas
     if fetch_details:
-        cache_edificio, cache_montantes = get_photos_from_ghl_system_api(opp.get("id"), contact_id, opp.get("name"))
-        if cache_edificio:
-            foto_edificio = cache_edificio
-        if cache_montantes:
-            foto_montantes = cache_montantes
+        import os
+        cache_data = get_cached_details_from_ghl_system_api(opp.get("id"), contact_id, opp.get("name"))
+        if cache_data:
+            path_edificio = cache_data.get("foto_edificio_path")
+            path_montantes = cache_data.get("foto_montantes_path")
+            ghl_system_url = os.getenv("GHL_SYSTEM_API_URL", "http://localhost:5001")
+            if path_edificio:
+                filename_edificio = path_edificio.replace('\\', '/').split('/')[-1]
+                foto_edificio = f"{ghl_system_url}/api/cache/files/{filename_edificio}"
+            if path_montantes:
+                filename_montantes = path_montantes.replace('\\', '/').split('/')[-1]
+                foto_montantes = f"{ghl_system_url}/api/cache/files/{filename_montantes}"
+
+            if not supervisor:
+                supervisor = cache_data.get("cf_supervisor_hunting") or cache_data.get("cf_supervisor") or cache_data.get("supervisor") or ""
+            if not ejecutivo:
+                ejecutivo = cache_data.get("cf_ejecutivo_principal") or cache_data.get("cf_ejecutivo") or cache_data.get("ejecutivo") or ""
 
     return {
         "id": opp.get("id"),
@@ -276,6 +317,8 @@ def _build_opportunity_summary(opp: dict, fetch_details: bool = False) -> dict:
         "coordenadas": fields["coordenadas"],
         "stage": stage_id,
         "contact_id": contact_id,
+        "supervisor": supervisor,
+        "ejecutivo": ejecutivo,
     }
 
 
@@ -411,22 +454,38 @@ def enrich_opportunity(opp_summary: dict) -> dict:
 
     foto_edificio = fields.get("foto_edificio")
     foto_montantes = fields.get("foto_montantes")
+    supervisor = fields.get("supervisor")
+    ejecutivo = fields.get("ejecutivo")
 
     # 🚀 PRIORIDAD CACHÉ LOCAL: Buscamos siempre primero las fotos locales en la caché de GHL_System para evitar URLs de GHL muertas
     print(f"🔍 [CACHE GHL_SYSTEM] Buscando fotos locales en caché para: {opp_summary.get('name')}", flush=True)
-    cache_edificio, cache_montantes = get_photos_from_ghl_system_api(opp_id, contact_id, opp_summary.get("name"))
-    if cache_edificio:
-        foto_edificio = cache_edificio
-        print(f"✅ [CACHE GHL_SYSTEM] Foto Edificio local seleccionada: {foto_edificio}", flush=True)
-    if cache_montantes:
-        foto_montantes = cache_montantes
-        print(f"✅ [CACHE GHL_SYSTEM] Foto Montantes local seleccionada: {foto_montantes}", flush=True)
+    cache_data = get_cached_details_from_ghl_system_api(opp_id, contact_id, opp_summary.get("name"))
+    if cache_data:
+        path_edificio = cache_data.get("foto_edificio_path")
+        path_montantes = cache_data.get("foto_montantes_path")
+        ghl_system_url = os.getenv("GHL_SYSTEM_API_URL", "http://localhost:5001")
+        if path_edificio:
+            filename_edificio = path_edificio.replace('\\', '/').split('/')[-1]
+            foto_edificio = f"{ghl_system_url}/api/cache/files/{filename_edificio}"
+            print(f"✅ [CACHE GHL_SYSTEM] Foto Edificio local seleccionada: {foto_edificio}", flush=True)
+        if path_montantes:
+            filename_montantes = path_montantes.replace('\\', '/').split('/')[-1]
+            foto_montantes = f"{ghl_system_url}/api/cache/files/{filename_montantes}"
+            print(f"✅ [CACHE GHL_SYSTEM] Foto Montantes local seleccionada: {foto_montantes}", flush=True)
+
+        if not supervisor:
+            supervisor = cache_data.get("cf_supervisor_hunting") or cache_data.get("cf_supervisor") or cache_data.get("supervisor") or ""
+        if not ejecutivo:
+            ejecutivo = cache_data.get("cf_ejecutivo_principal") or cache_data.get("cf_ejecutivo") or cache_data.get("ejecutivo") or ""
 
     if foto_edificio:
         opp_summary["foto"] = foto_edificio
         opp_summary["foto_edificio"] = foto_edificio
     if foto_montantes:
         opp_summary["foto_montantes"] = foto_montantes
+
+    opp_summary["supervisor"] = supervisor
+    opp_summary["ejecutivo"] = ejecutivo
 
     return opp_summary
 
@@ -455,6 +514,13 @@ def download_image_bytes(url: str) -> bytes:
     """Descarga los bytes de una imagen desde GHL usando autenticación y la comprime para evitar error 413."""
     if not url:
         return None
+        
+    url = url.strip()
+    # Si es un enlace de descarga de documentos de GHL, agregamos el locationId y alt=media
+    if "/documents/download/" in url and "locationId=" not in url:
+        separador = "&" if "?" in url else "?"
+        url = f"{url}{separador}alt=media&locationId={config.LOCATION_ID}"
+        
     headers = {}
     if "leadconnectorhq.com" in url or "gohighlevel.com" in url:
         headers = {
@@ -499,3 +565,19 @@ def download_image_bytes(url: str) -> bytes:
     except Exception as e:
         print(f"⚠️ Excepción descargando imagen: {e}")
     return None
+
+
+def consultar_disponibilidad(search_query: str) -> list:
+    """Consulta al API de disponibilidad de GHL System pasándole un término de búsqueda."""
+    import os
+    ghl_system_url = os.getenv("GHL_SYSTEM_API_URL", "http://localhost:5001")
+    url = f"{ghl_system_url}/api/disponibilidad"
+    try:
+        resp = requests.get(url, params={"q": search_query}, timeout=10)
+        if resp.status_code == 200:
+            return resp.json()
+        print(f"⚠️ Error consultar_disponibilidad: HTTP {resp.status_code}")
+        return []
+    except Exception as e:
+        print(f"⚠️ Excepción al consultar_disponibilidad: {e}")
+        return []
