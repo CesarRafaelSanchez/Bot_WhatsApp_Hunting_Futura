@@ -123,6 +123,81 @@ def _procesar_flujo_bot_interno(session_id: str, phone_clean: str, user_input: s
             state_model.clear_user_state(phone_clean)
             return "📋 No se encontraron oportunidades asignadas.\n\n*0* Volver al Menú Principal"
 
+        elif state == "HUNTER_VISIT_NEW_SEARCH" and role == "HUNTER":
+            from services import ghl_client
+            term = user_input.strip()
+            if term == "0":
+                state_model.clear_user_state(phone_clean)
+                return menus.obtener_menu_principal(user["name"], role)
+
+            # Comprobar disponibilidad en la base de datos
+            results = ghl_client.consultar_disponibilidad(term)
+            
+            if results:
+                # El edificio ya está ocupado/registrado por alguien más
+                state_model.clear_user_state(phone_clean)
+                row = results[0]
+                direccion_parts = [p for p in [row.get("tipo_via"), row.get("nombre_via"), row.get("numero_via"), row.get("urbanizacion"), row.get("distrito")] if p]
+                direccion = ", ".join(direccion_parts) if direccion_parts else "Sin dirección"
+                
+                return (
+                    f"⚠️ *Edificio No Disponible para Hunting:*\n"
+                    f"El edificio o dirección *{term.upper()}* ya está registrado o siendo trabajado.\n"
+                    f"• *Nombre:* {row['nombre_proyecto'].upper()}\n"
+                    f"• *Dirección:* {direccion}\n"
+                    f"• *Gestor asignado:* {row['gestor'] or 'Sin asignar'}\n\n"
+                    f"No es posible registrar visitas de hunting sobre este edificio ya asignado.\n\n"
+                    f"*0* Volver al Menú Principal"
+                )
+            else:
+                # El edificio está disponible
+                opp_name = term.upper()
+                state_model.set_user_state(phone_clean, "HUNTER_VISIT_UPLOADING_PHOTOS", {"opp_id": None, "opp_name": opp_name, "is_new": True})
+                return (
+                    f"✅ *Edificio Disponible:* El edificio o dirección *{opp_name}* está libre para hunting.\n\n"
+                    f"Por favor, envíe la foto de la fachada o edificio nuevo para registrar su visita de campo. Solo es necesario subir una foto.\n\n"
+                    f"Cuando termine, escriba la palabra *Listo* o *Terminado*."
+                )
+
+        elif state == "HUNTER_VISIT_SELECT_OPPORTUNITY" and role == "HUNTER":
+            from services import ghl_client
+            opportunities = ghl_client.get_opportunities_by_user(user["ghl_id"])
+
+            if user_input.strip() == "0":
+                state_model.clear_user_state(phone_clean)
+                return menus.obtener_menu_principal(user["name"], role)
+
+            if user_input.strip().isdigit():
+                opp_index = int(user_input.strip()) - 1
+                if 0 <= opp_index < len(opportunities):
+                    selected_opp = opportunities[opp_index]
+                    state_model.set_user_state(phone_clean, "HUNTER_VISIT_UPLOADING_PHOTOS", {"opp_id": selected_opp.get("id"), "opp_name": selected_opp.get("name")})
+                    return f"🏢 *Edificio seleccionado:* {selected_opp.get('name')}\n\nPor favor, envíe las fotos de su visita en este chat. Puede tomar y subir varias imágenes consecutivas.\n\nCuando termine, escriba la palabra *Listo* o *Terminado*."
+                return menus.mostrar_oportunidades_resumidas(opportunities) + "\n\n⚠️ Número inválido. Seleccione un número de la lista o *0* para volver."
+            return menus.mostrar_oportunidades_resumidas(opportunities) + "\n\n⚠️ Por favor, seleccione un número de la lista o *0* para volver."
+
+        elif state == "HUNTER_VISIT_UPLOADING_PHOTOS" and role == "HUNTER":
+            if user_input.strip().lower() in ["listo", "terminado"]:
+                opp_name = state_data.get("opp_name", "el edificio") if state_data else "el edificio"
+                is_new = state_data.get("is_new") if state_data else False
+                state_model.clear_user_state(phone_clean)
+                
+                if is_new:
+                    return (
+                        f"✅ *¡Visita de Hunting Registrada con Éxito!* 🎉\n\n"
+                        f"La foto de su visita al nuevo edificio *{opp_name}* ha sido recibida y guardada.\n\n"
+                        f"Recuerde completar su Formulario de Asignación cuando regrese a la oficina. 👍\n\n"
+                        f"*0* Volver al Menú Principal"
+                    )
+                else:
+                    return (
+                        f"✅ *¡Visita Registrada con Éxito!* 🎉\n\n"
+                        f"Las fotos de su visita a *{opp_name}* han sido procesadas, subidas a Google Drive y vinculadas a la oportunidad en GoHighLevel.\n\n"
+                        f"¡Gracias por su reporte de campo! 👍\n\n"
+                        f"*0* Volver al Menú Principal"
+                    )
+            return "📸 *Foto de visita recibida.* Puede continuar subiendo más fotos, o escriba *Listo* para finalizar el registro de la visita."
+
         elif state == "BUSCAR_PROYECTO" and role in ["HUNTER", "TI", "BACKOFFICE", "CEO"]:
             from services import ghl_client
             opps = ghl_client.get_opportunities_advanced(user["ghl_id"], search_query=user_input.strip())
@@ -260,6 +335,19 @@ def _procesar_flujo_bot_interno(session_id: str, phone_clean: str, user_input: s
     elif user_input == "4" and role == "HUNTER":
         state_model.set_user_state(phone_clean, "HUNTER_CONSULTAR_DISPONIBILIDAD", {})
         return "🔍 *Comprobador de Disponibilidad:*\n\nPor favor, escriba el nombre o dirección del edificio que desea consultar:"
+
+    elif user_input == "5" and role == "HUNTER":
+        return menus.obtener_submenu_visitas()
+
+    elif user_input == "51" and role == "HUNTER":
+        state_model.set_user_state(phone_clean, "HUNTER_VISIT_NEW_SEARCH", {})
+        return "🔍 *Registrar visita a un NUEVO edificio (Prospecto / Hunting)*\n\nPor favor, escriba el nombre o dirección del edificio que desea buscar:"
+
+    elif user_input == "52" and role == "HUNTER":
+        from services import ghl_client
+        opps = ghl_client.get_opportunities_by_user(user["ghl_id"])
+        state_model.set_user_state(phone_clean, "HUNTER_VISIT_SELECT_OPPORTUNITY", {})
+        return menus.mostrar_oportunidades_resumidas(opps)
 
     elif user_input == "2" and role in ["CEO", "BACKOFFICE", "TI"]:
         return menus.procesar_opcion_ceo()

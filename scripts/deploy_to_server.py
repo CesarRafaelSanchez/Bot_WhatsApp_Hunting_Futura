@@ -33,7 +33,7 @@ if not project_path:
     ssh.close()
     sys.exit(1)
 
-print(f"✅ Directorio encontrado en: {project_path}")
+print(f"Directorio encontrado en: {project_path}")
 
 # 2. Transferir archivos usando SFTP
 print("Iniciando transferencia de archivos SFTP...")
@@ -83,27 +83,18 @@ for cmd in sql_commands:
     else:
         print("    [Ejecutado correctamente]")
 
-# 4. Intentar buscar y reiniciar el servicio (usando systemd o pm2)
-print("Intentando reiniciar la aplicación...")
-stdin, stdout, stderr = ssh.exec_command("pm2 restart all")
-pm2_out = stdout.read().decode().strip()
-if "pm2: command not found" not in pm2_out and "error" not in pm2_out.lower():
-    print("  Aplicación reiniciada vía pm2.")
-else:
-    # Buscar procesos python de app.py
-    stdin, stdout, stderr = ssh.exec_command("pgrep -f app.py")
-    pids = stdout.read().decode().strip().split()
-    if pids:
-        print(f"  Matando procesos python anteriores (PIDs: {', '.join(pids)})...")
-        ssh.exec_command("pkill -f app.py")
-        time.sleep(2)
-        # Iniciar nuevamente de forma simple usando nohup en background (si no usan systemd)
-        start_cmd = f"cd {project_path} && nohup .venv/bin/python app.py > output.log 2>&1 &"
-        print(f"  Iniciando app.py con: {start_cmd}")
-        ssh.exec_command(start_cmd)
-        print("  Aplicación reiniciada vía nohup.")
-    else:
-        print("  No se detectó un proceso de app.py corriendo. Puede que esté bajo systemd o docker.")
+# 4. Reiniciar la aplicación usando Docker Compose
+print("Reiniciando la aplicación vía Docker Compose...")
+restart_cmd = f"cd {project_path} && docker compose down && docker compose up -d --build"
+print(f"  Ejecutando: {restart_cmd}")
+stdin, stdout, stderr = ssh.exec_command(restart_cmd)
+err_out = stderr.read().decode().strip()
+std_out = stdout.read().decode().strip()
+if err_out:
+    print(f"  [Detalle/Advertencia Docker]:\n{err_out}")
+if std_out:
+    print(f"  [Salida Docker]:\n{std_out}")
+print("  Aplicación reiniciada con éxito vía Docker Compose.")
 
 ssh.close()
-print("🎉 Despliegue completado con éxito.")
+print("Despliegue completado con éxito.")

@@ -87,7 +87,8 @@ def inicializar_base_de_datos():
         ("51932068040", None, "Rafael Sanchez TI", "PaTMhzFbNbsRTvE3os5o", "TI"),
         ("51957770680", "80754579107843", "Humberto Benavides", "qOREYbNFDXYgi4ePmLT6", "HUNTER"),
         ("51934841065", "169917999485122", "Mathias Villena TI", "51PrMSG3YMKkq0XlKdrY", "TI"),
-        ("51918371086", "271901813375023", "Jean Pierre", "UzEVMjDvEHlw6YUAj3aJ", "HUNTER")
+        ("51918371086", "271901813375023", "Jean Pierre", "UzEVMjDvEHlw6YUAj3aJ", "HUNTER"),
+        ("51992417859", None, "Jean Pierre Requelme Veliz", "biTnxEO9lNsTxJfOaUQM", "HUNTER")
     ]
 
     ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

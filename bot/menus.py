@@ -41,7 +41,8 @@ def obtener_menu_principal(nombre: str, role: str) -> str:
             f"*[ 1 ]* Ver mis oportunidades asignadas en GHL\n"
             f"*[ 2 ]* Buscar proyecto por nombre\n"
             f"*[ 3 ]* Filtrar oportunidades por estado\n"
-            f"*[ 4 ]* Consultar disponibilidad de edificio"
+            f"*[ 4 ]* Consultar disponibilidad de edificio\n"
+            f"*[ 5 ]* Registrar visita de campo"
         )
     elif role_upper == "BACKOFFICE":
         return (
@@ -248,4 +249,32 @@ def procesar_opcion_ceo() -> str:
         reply += f"📁 *Otras etapas en proceso:* {otras_etapas}\n"
 
     reply += f"\n💡 _Datos reales extraídos en vivo desde GoHighLevel._"
+    return reply
+
+
+def obtener_submenu_visitas() -> str:
+    """Submenú secundario para registro de visitas de campo."""
+    return (
+        "🚶‍♂️ *Registro de Visitas de Campo*\n\n"
+        "Por favor, seleccione una opción:\n\n"
+        "*[ 51 ]* Registrar visita a un NUEVO edificio (Prospecto / Hunting)\n"
+        "*[ 52 ]* Registrar visita a un EDIFICIO TRABAJANDO / ASIGNADO\n\n"
+        "*[ 0 ]* Volver al Menú Principal"
+    )
+
+
+def mostrar_coincidencias_busqueda(opportunities, search_query: str) -> str:
+    """Muestra los resultados de coincidencia encontrados para la visita de campo."""
+    if not opportunities:
+        return ""
+
+    reply = f"📋 *Coincidencias Encontradas ({len(opportunities)})*\n"
+    reply += "Seleccione el número del edificio:\n"
+    reply += "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n\n"
+
+    for idx, opp in enumerate(opportunities, 1):
+        reply += f"*{idx}. {opp['name']}*\n"
+        
+    reply += f"\nSi su edificio no aparece en la lista, responda con la palabra *NUEVO* para registrar la visita usando el nombre buscado (*{search_query.upper()}*).\n\n"
+    reply += "*0* Volver al Menú Principal"
     return reply

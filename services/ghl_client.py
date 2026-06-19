@@ -336,6 +336,17 @@ def _search_opportunities(params: dict, fetch_details: bool = False) -> list:
         return []
 
 
+def search_opportunities_global(search_query: str) -> list:
+    """Búsqueda global de oportunidades en todo el pipeline (sin importar el asignado)."""
+    params = {
+        "location_id": config.LOCATION_ID,
+        "pipeline_id": config.PIPELINE_ID,
+        "q": search_query,
+        "limit": 10,
+    }
+    return _search_opportunities(params, fetch_details=False)
+
+
 def get_opportunities_by_user(ghl_user_id: str):
     """Obtiene y formatea las oportunidades operativas activas para el Hunter (Opción 1 - Límite 100)."""
     params = {
